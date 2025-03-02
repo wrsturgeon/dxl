@@ -1,0 +1,12 @@
+[package]
+name = "dxl"
+version = "0.1.0"
+edition = "2024"
+
+[patch.crates-io]
+quickcheck = { git = "https://github.com/burntsushi/quickcheck.git" }
+quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git" }
+
+[dev-dependencies]
+quickcheck = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
+quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
