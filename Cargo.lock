@@ -12,6 +12,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 name = "dxl"
 version = "0.1.0"
 dependencies = [
+ "log",
  "quickcheck",
  "quickcheck_macros",
  "strum",
@@ -40,6 +41,11 @@ name = "libc"
 version = "0.2.170"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "875b3680cb2f8f71bdcf9a30f38d48282f5d3c95cbf9b3fa57269bb5d5c06828"
+
+[[package]]
+name = "log"
+version = "0.4.26"
+source = "git+https://github.com/rust-lang/log.git#d777bd67a0e59a26ffa468b1b20c0db7deca472a"
 
 [[package]]
 name = "proc-macro2"

@@ -1,4 +1,7 @@
-use crate::{parse::Parse, stream::Stream};
+use {
+    crate::{parse::Parse, stream::Stream},
+    core::fmt,
+};
 
 #[repr(transparent)]
 pub struct C8<const N: u8>(u8);
@@ -82,14 +85,19 @@ where
     }
 }
 
+#[derive(Debug)]
 pub struct WrongByte {
     pub expected: u8,
     pub actual: u8,
 }
 
-impl From<!> for WrongByte {
-    #[inline(always)]
-    fn from(value: !) -> Self {
-        match value {/* no cases */}
+impl fmt::Display for WrongByte {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            ref expected,
+            ref actual,
+        } = *self;
+        write!(f, "Expected `{expected:02X?}` but received `{actual:02X?}`")
     }
 }

@@ -6,7 +6,7 @@ use {
         parse::Parse,
         stream::{self, Stream},
     },
-    core::marker::PhantomData,
+    core::{fmt, marker::PhantomData},
 };
 
 pub enum Error<Insn: Instruction> {
@@ -15,9 +15,23 @@ pub enum Error<Insn: Instruction> {
     Hardware,
 }
 
+impl<Insn: Instruction> fmt::Display for Error<Insn> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Parsing(ref e) => fmt::Display::fmt(e, f),
+            Self::Software(ref e) => fmt::Display::fmt(e, f),
+            Self::Hardware => write!(
+                f,
+                "Hardware error reported (details require a separate request)"
+            ),
+        }
+    }
+}
+
 #[repr(u8)]
 #[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[cfg_attr(test, derive(strum_macros::VariantArray))]
 pub enum SoftwareError {
     ResultFail = 0x01,
@@ -29,9 +43,34 @@ pub enum SoftwareError {
     AccessError = 0x07,
 }
 
+impl fmt::Display for SoftwareError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+Self::ResultFail => write!(f, "Actuator could not process the packet"),
+Self::InstructionError => write!(f, "Either the actuator did not recognize the instruction byte or it received `Action` without `RegWrite`"),
+Self::CrcError => write!(f, "Actuator disagrees about CRC calculation (likely a corrupted packet)"),
+Self::DataRangeError => write!(f, "Data to be written is too long to fit in the specified range of memory"),
+Self::DataLengthError => write!(f, "Data to be written is too short to fit in the specified range of memory"),
+Self::DataLimitError => write!(f, "Data out of range"),
+Self::AccessError => write!(f, "Couldn't write (either tried to write to EEPROM with torque enabled, tried to write to read-only memory, or tried to read from write-only memory)"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct InvalidSoftwareError {
     byte_without_msb: u8,
+}
+
+impl fmt::Display for InvalidSoftwareError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            ref byte_without_msb,
+        } = *self;
+        write!(f, "Invalid software error: `{byte_without_msb:02X?}`")
+    }
 }
 
 impl SoftwareError {
@@ -53,7 +92,7 @@ impl SoftwareError {
 
 pub enum ParseError<Insn: Instruction> {
     WrongHeader(WrongByte),
-    WrongReservedByte(WrongByte),
+    WrongReserved(WrongByte),
     WrongId(WrongByte),
     WrongLength(WrongByte),
     WrongInstruction(WrongByte),
@@ -61,9 +100,37 @@ pub enum ParseError<Insn: Instruction> {
     InvalidSoftwareError(InvalidSoftwareError),
 }
 
+impl<Insn: Instruction> fmt::Display for ParseError<Insn> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::WrongHeader(ref e) => write!(f, "Wrong header byte: {e}"),
+            Self::WrongReserved(ref e) => write!(f, "Wrong reserved byte: {e}"),
+            Self::WrongId(ref e) => write!(f, "Wrong ID: {e}"),
+            Self::WrongLength(ref e) => write!(f, "Wrong length: {e}"),
+            Self::WrongInstruction(ref e) => write!(f, "Wrong instruction: {e}"),
+            Self::InstructionSpecific(ref e) => fmt::Display::fmt(e, f),
+            Self::InvalidSoftwareError(ref e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
 pub enum ParseOrCrcError<Insn: Instruction> {
     Crc { expected: u16, actual: u16 },
     Parse(ParseError<Insn>),
+}
+
+impl<Insn: Instruction> fmt::Display for ParseOrCrcError<Insn> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Parse(ref e) => fmt::Display::fmt(e, f),
+            Self::Crc { expected, actual } => write!(
+                f,
+                "Expected CRC to be `{expected:02X?}` but received `{actual:02X?}`"
+            ),
+        }
+    }
 }
 
 pub struct WithErrorCode<Insn: Instruction> {
@@ -142,7 +209,7 @@ where
             .map_err(Self::Error::WrongHeader)?;
         let () = <C8<0x00> as Parse<u8>>::parse(s)
             .await
-            .map_err(Self::Error::WrongReservedByte)?;
+            .map_err(Self::Error::WrongReserved)?;
         let () = <C8<ID> as Parse<u8>>::parse(s)
             .await
             .map_err(Self::Error::WrongId)?;
@@ -230,6 +297,8 @@ where
 mod test {
     use {
         super::*,
+        crate::{compiletime::instruction, stream, test_util},
+        core::pin::pin,
         quickcheck::{Arbitrary, Gen, TestResult},
         quickcheck_macros::quickcheck,
         strum::VariantArray,
@@ -274,5 +343,26 @@ mod test {
         } else {
             TestResult::error(format!("Invalid software-error byte logic: {software_error:#?} -> {byte_without_msb:#?} -> {result:#?} =/= Ok(Some({software_error:#?}))"))
         }
+    }
+
+    #[test]
+    fn parse_ping() {
+        const EXPECTED: instruction::recv::Ping = instruction::recv::Ping {
+            model_number: 1030,
+            firmware_version: 38,
+        };
+        let status_packet = [
+            0xFF, 0xFF, 0xFD, 0x00, 0x01, 0x07, 0x00, 0x55, 0x00, 0x06, 0x04, 0x26, 0x65, 0x5D,
+        ];
+        let mut s = stream::WithLog(stream::Loop::new(&status_packet));
+        let future = crate::compiletime::packet::parse::<instruction::Ping, 0x01>(&mut s);
+        let actual = match test_util::trivial_future(pin!(future)) {
+            Ok(ok) => ok,
+            Err(e) => panic!("{e}"),
+        };
+        assert_eq!(
+            actual, EXPECTED,
+            "Expected `{EXPECTED:02X?}` but got `{actual:02X?}`",
+        );
     }
 }

@@ -1,9 +1,9 @@
-use crate::stream::Stream;
+use {crate::stream::Stream, core::fmt};
 
 #[expect(async_fn_in_trait, reason = "fuck off")]
 pub trait Parse<Input>: Sized {
     type Output;
-    type Error;
+    type Error: fmt::Display;
 
     async fn parse<S: Stream<Item = Input>>(s: &mut S) -> Result<Self::Output, Self::Error>;
 }
@@ -22,7 +22,7 @@ impl Parse<u8> for u16 {
 
 impl<
         Input,
-        E,
+        E: fmt::Display,
         A: Parse<Input, Error = E>,
         B: Parse<Input, Error = E>,
         C: Parse<Input, Error = E>,
@@ -41,8 +41,8 @@ impl<
 mod test {
     use {
         super::*,
-        crate::stream,
-        core::{pin::pin, task},
+        crate::{stream, test_util},
+        core::pin::pin,
         quickcheck::TestResult,
         quickcheck_macros::quickcheck,
     };
@@ -51,14 +51,10 @@ mod test {
     fn parse_u16(i: u16) -> TestResult {
         let little_endian = i.to_le_bytes();
         let mut s = stream::WithLog(stream::Loop::new(&little_endian));
-        let unpinned = u16::parse(&mut s);
-        let future = pin!(unpinned);
-        let roundtrip = match future.poll(&mut task::Context::from_waker(task::Waker::noop())) {
-            task::Poll::Pending => {
-                return TestResult::error(format!("Future not immediately ready"))
-            }
-            task::Poll::Ready(Err(e)) => return TestResult::error(format!("{e}")),
-            task::Poll::Ready(Ok(ok)) => ok,
+        let future = u16::parse(&mut s);
+        let roundtrip = match test_util::trivial_future(pin!(future)) {
+            Err(e) => return TestResult::error(format!("{e}")),
+            Ok(ok) => ok,
         };
         if roundtrip == i {
             TestResult::passed()

@@ -4,10 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [patch.crates-io]
+log = { git = "https://github.com/rust-lang/log.git" }
 quickcheck = { git = "https://github.com/burntsushi/quickcheck.git" }
 quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git" }
 strum = { git = "https://github.com/peternator7/strum.git" }
 strum_macros = { git = "https://github.com/peternator7/strum.git" }
+
+[dependencies]
+log = { git = "https://github.com/rust-lang/log.git", default-features = false }
 
 [dev-dependencies]
 quickcheck = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }

@@ -5,6 +5,8 @@ use {
     core::marker::PhantomData,
 };
 
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(C, packed)]
 pub struct Ping {
     pub model_number: u16,
     pub firmware_version: u8,
@@ -24,6 +26,8 @@ impl Parse<u8> for Ping {
     }
 }
 
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[repr(C, packed)]
 pub struct Read<Address: control_table::Item>
 where
     [(); Address::BYTES as usize]:,
@@ -44,6 +48,7 @@ where
     }
 }
 
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Write<Address: control_table::Item>(PhantomData<Address>);
 impl<Address: control_table::Item> Write<Address> {
     #[inline(always)]
@@ -52,14 +57,15 @@ impl<Address: control_table::Item> Write<Address> {
     }
 }
 impl<Address: control_table::Item> Parse<u8> for Write<Address> {
-    type Output = Self;
+    type Output = ();
     type Error = !;
     #[inline(always)]
     async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
-        Ok(Self::new())
+        Ok(())
     }
 }
 
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct RegWrite<Address: control_table::Item>(PhantomData<Address>);
 impl<Address: control_table::Item> RegWrite<Address> {
     #[inline(always)]
@@ -68,40 +74,43 @@ impl<Address: control_table::Item> RegWrite<Address> {
     }
 }
 impl<Address: control_table::Item> Parse<u8> for RegWrite<Address> {
-    type Output = Self;
+    type Output = ();
     type Error = !;
     #[inline(always)]
     async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
-        Ok(Self::new())
+        Ok(())
     }
 }
 
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Action;
 impl Parse<u8> for Action {
-    type Output = Self;
+    type Output = ();
     type Error = !;
     #[inline(always)]
     async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
-        Ok(Self)
+        Ok(())
     }
 }
 
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct FactoryReset;
 impl Parse<u8> for FactoryReset {
-    type Output = Self;
+    type Output = ();
     type Error = !;
     #[inline(always)]
     async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
-        Ok(Self)
+        Ok(())
     }
 }
 
+#[derive(Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Reboot;
 impl Parse<u8> for Reboot {
-    type Output = Self;
+    type Output = ();
     type Error = !;
     #[inline(always)]
     async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
-        Ok(Self)
+        Ok(())
     }
 }

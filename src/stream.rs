@@ -41,29 +41,40 @@ impl<S: Stream<Item: core::fmt::Debug>> Stream for WithLog<S> {
     #[inline]
     async fn next(&mut self) -> Self::Item {
         let item = self.0.next().await;
-        println!("Stream log: {item:?}");
+        println!("Stream log: {item:02X?}");
         item
     }
 }
 
+#[cfg(test)]
 pub struct Loop<'slice, Item: Clone> {
     index: usize,
     slice: &'slice [Item],
+    start: std::time::Instant,
 }
 
+#[cfg(test)]
 impl<'slice, Item: Clone> Loop<'slice, Item> {
     #[inline]
     pub fn new(slice: &'slice [Item]) -> Self {
-        Self { index: 0, slice }
+        Self {
+            index: 0,
+            slice,
+            start: std::time::Instant::now(),
+        }
     }
 }
 
+#[cfg(test)]
 impl<Item: Clone> Stream for Loop<'_, Item> {
     type Item = Item;
 
     #[inline]
     async fn next(&mut self) -> Self::Item {
         loop {
+            if self.start.elapsed() > core::time::Duration::from_millis(1) {
+                panic!("`stream::Loop` timed out");
+            }
             let Some(item) = self.slice.get(self.index) else {
                 self.index = 0;
                 continue;

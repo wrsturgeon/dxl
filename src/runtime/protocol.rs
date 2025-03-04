@@ -1,5 +1,5 @@
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum Instruction {
     Ping = 0x01,
     Read = 0x02,
@@ -20,7 +20,7 @@ pub enum Instruction {
 }
 
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, Hash, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum ControlTable {
     ModelNumber = 0,
     ModelInformation = 2,

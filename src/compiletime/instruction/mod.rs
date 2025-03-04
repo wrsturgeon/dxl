@@ -3,7 +3,7 @@ pub mod send;
 
 use {
     crate::{compiletime::control_table, parse::Parse},
-    core::marker::PhantomData,
+    core::{fmt, marker::PhantomData},
 };
 
 pub trait Instruction {
@@ -12,7 +12,7 @@ pub trait Instruction {
     // const RECV_BYTES: u16;
 
     type Send;
-    type Recv: Parse<u8>;
+    type Recv: fmt::Debug + Parse<u8>;
 
     // TODO: SEE IF WE CAN USE SIZES OF THESE TYPES INSTEAD OF CONSTANTS
 }

@@ -11,3 +11,6 @@ pub mod crc;
 pub mod parse;
 pub mod runtime;
 pub mod stream;
+
+#[cfg(test)]
+pub mod test_util;
