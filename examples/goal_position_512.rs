@@ -17,10 +17,5 @@ const PACKET: send::WithCrc<Insn, ID> =
     packet::new::<Insn, ID>(<Insn as Instruction>::Send::new(512_u32.to_le_bytes()));
 
 fn main() {
-    println!("{:02X?}", unsafe {
-        core::slice::from_raw_parts(
-            &PACKET as *const _ as *const u8,
-            core::mem::size_of::<send::WithCrc<Insn, ID>>(),
-        )
-    });
+    println!("{:02X?}", PACKET.as_buffer());
 }

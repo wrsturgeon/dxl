@@ -140,21 +140,9 @@ struct WithErrorCode<Insn: Instruction> {
     expected_crc: u16,
 }
 
-// #[repr(C, packed)]
 struct WithoutCrc<Insn: Instruction, const ID: u8>(PhantomData<Insn>)
 where
     [(); { core::mem::size_of::<Insn::Recv>() as u16 + 4 } as usize]:;
-/*
-{
-    header: (C8<0xFF>, C8<0xFF>, C8<0xFD>),
-    reserved: C8<0x00>,
-    id: C8<ID>,
-    length: C16<{ core::mem::size_of::<Insn::Recv>() as u16 + 4 }>,
-    instruction: C8<0x55>,
-    error: u8,
-    parameters: Insn::Recv,
-}
-*/
 
 impl<Insn: Instruction, const ID: u8> WithoutCrc<Insn, ID>
 where
@@ -176,21 +164,6 @@ where
         crc.push(0x55);
         crc
     }
-
-    /*
-    #[inline]
-    fn crc(&self) -> u16 {
-        let mut crc = const { Self::crc_init() };
-        crc.push(self.error);
-        let ptr: *const u8 = self as *const _ as *const u8;
-        for i in (core::mem::size_of::<Self>() - core::mem::size_of::<Insn>())
-            ..(core::mem::size_of::<Self>())
-        {
-            crc.push(unsafe { *ptr.byte_offset(i as isize) })
-        }
-        crc.collapse()
-    }
-    */
 }
 
 impl<Insn: Instruction, const ID: u8> Parse<u8> for WithoutCrc<Insn, ID>
@@ -244,18 +217,11 @@ where
     }
 }
 
-// #[repr(C, packed)]
 pub struct WithCrc<Insn: Instruction, const ID: u8>(PhantomData<Insn>)
 where
     [(); { core::mem::size_of::<Insn::Recv>() as u16 + 4 } as usize]:,
     [(); { ((core::mem::size_of::<Insn::Recv>() as u16 + 4) & 0xFF) as u8 } as usize]:,
     [(); { ((core::mem::size_of::<Insn::Recv>() as u16 + 4) >> 8) as u8 } as usize]:;
-/*
-{
-    without_crc: WithoutCrc<Insn, ID>,
-    crc: [u8; 2],
-}
-*/
 
 impl<Insn: Instruction, const ID: u8> Parse<u8> for WithCrc<Insn, ID>
 where

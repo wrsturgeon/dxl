@@ -8,13 +8,9 @@ use {
 
 pub trait Instruction {
     const BYTE: u8;
-    // const SEND_BYTES: u16;
-    // const RECV_BYTES: u16;
 
     type Send;
     type Recv: fmt::Debug + Parse<u8>;
-
-    // TODO: SEE IF WE CAN USE SIZES OF THESE TYPES INSTEAD OF CONSTANTS
 }
 
 pub struct Ping;

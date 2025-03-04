@@ -7,7 +7,6 @@ use crate::{
 #[repr(C, packed)]
 pub(super) struct WithoutCrc<Insn: Instruction, const ID: u8>
 where
-    // [(); { Insn::SEND_BYTES + 3 } as usize]:,
     [(); { core::mem::size_of::<Insn::Send>() as u16 + 3 } as usize]:,
     [(); { Insn::BYTE } as usize]:,
 {
@@ -21,7 +20,6 @@ where
 
 impl<Insn: Instruction, const ID: u8> WithoutCrc<Insn, ID>
 where
-    // [(); { Insn::SEND_BYTES + 3 } as usize]:,
     [(); { core::mem::size_of::<Insn::Send>() as u16 + 3 } as usize]:,
     [(); { Insn::BYTE } as usize]:,
 {
@@ -58,10 +56,22 @@ where
 #[repr(C, packed)]
 pub struct WithCrc<Insn: Instruction, const ID: u8>
 where
-    // [(); { Insn::SEND_BYTES + 3 } as usize]:,
     [(); { core::mem::size_of::<Insn::Send>() as u16 + 3 } as usize]:,
     [(); { Insn::BYTE } as usize]:,
 {
     pub(super) without_crc: WithoutCrc<Insn, ID>,
     pub(super) crc: [u8; 2],
+}
+
+impl<Insn: Instruction, const ID: u8> WithCrc<Insn, ID>
+where
+    [(); { core::mem::size_of::<Insn::Send>() as u16 + 3 } as usize]:,
+    [(); { Insn::BYTE } as usize]:,
+{
+    #[inline]
+    pub const fn as_buffer(&self) -> &[u8] {
+        let ptr = self as *const Self as *const u8;
+        let size = const { core::mem::size_of::<Self>() };
+        unsafe { core::slice::from_raw_parts(ptr, size) }
+    }
 }
