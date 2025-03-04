@@ -30,3 +30,46 @@ impl<S: Stream<Item = u8>> Stream for WithCrc<'_, S> {
         byte
     }
 }
+
+#[cfg(test)]
+pub struct WithLog<S: Stream>(pub S);
+
+#[cfg(test)]
+impl<S: Stream<Item: core::fmt::Debug>> Stream for WithLog<S> {
+    type Item = S::Item;
+
+    #[inline]
+    async fn next(&mut self) -> Self::Item {
+        let item = self.0.next().await;
+        println!("Stream log: {item:?}");
+        item
+    }
+}
+
+pub struct Loop<'slice, Item: Clone> {
+    index: usize,
+    slice: &'slice [Item],
+}
+
+impl<'slice, Item: Clone> Loop<'slice, Item> {
+    #[inline]
+    pub fn new(slice: &'slice [Item]) -> Self {
+        Self { index: 0, slice }
+    }
+}
+
+impl<Item: Clone> Stream for Loop<'_, Item> {
+    type Item = Item;
+
+    #[inline]
+    async fn next(&mut self) -> Self::Item {
+        loop {
+            let Some(item) = self.slice.get(self.index) else {
+                self.index = 0;
+                continue;
+            };
+            self.index += 1;
+            return item.clone();
+        }
+    }
+}

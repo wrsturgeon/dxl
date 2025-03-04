@@ -36,3 +36,36 @@ impl<
         Ok((A::parse(s).await?, B::parse(s).await?, C::parse(s).await?))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use {
+        super::*,
+        crate::stream,
+        core::{pin::pin, task},
+        quickcheck::TestResult,
+        quickcheck_macros::quickcheck,
+    };
+
+    #[quickcheck]
+    fn parse_u16(i: u16) -> TestResult {
+        let little_endian = i.to_le_bytes();
+        let mut s = stream::WithLog(stream::Loop::new(&little_endian));
+        let unpinned = u16::parse(&mut s);
+        let future = pin!(unpinned);
+        let roundtrip = match future.poll(&mut task::Context::from_waker(task::Waker::noop())) {
+            task::Poll::Pending => {
+                return TestResult::error(format!("Future not immediately ready"))
+            }
+            task::Poll::Ready(Err(e)) => return TestResult::error(format!("{e}")),
+            task::Poll::Ready(Ok(ok)) => ok,
+        };
+        if roundtrip == i {
+            TestResult::passed()
+        } else {
+            TestResult::error(format!(
+                "{i:02X?} -> {little_endian:02X?} -> {roundtrip:02X?} =/= {i:02X?}"
+            ))
+        }
+    }
+}
