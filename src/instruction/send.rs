@@ -1,6 +1,6 @@
 #![expect(clippy::new_without_default, reason = "would be inconsistent")]
 
-use crate::{compiletime::control_table, constants::C16};
+use crate::{constants::C16, control_table};
 
 pub struct Ping;
 

@@ -15,9 +15,9 @@ impl<S: Stream> Stream for &mut S {
     }
 }
 
-pub struct WithCrc<'crc, S: Stream<Item = u8>> {
-    pub crc: &'crc mut Crc,
-    pub internal: S,
+pub(crate) struct WithCrc<'crc, S: Stream<Item = u8>> {
+    pub(crate) crc: &'crc mut Crc,
+    pub(crate) internal: S,
 }
 
 impl<S: Stream<Item = u8>> Stream for WithCrc<'_, S> {
@@ -32,7 +32,7 @@ impl<S: Stream<Item = u8>> Stream for WithCrc<'_, S> {
 }
 
 #[cfg(test)]
-pub struct WithLog<S: Stream>(pub S);
+pub(crate) struct WithLog<S: Stream>(pub(crate) S);
 
 #[cfg(test)]
 impl<S: Stream<Item: core::fmt::Debug>> Stream for WithLog<S> {
@@ -47,7 +47,7 @@ impl<S: Stream<Item: core::fmt::Debug>> Stream for WithLog<S> {
 }
 
 #[cfg(test)]
-pub struct Loop<'slice, Item: Clone> {
+pub(crate) struct Loop<'slice, Item: Clone> {
     index: usize,
     slice: &'slice [Item],
     start: std::time::Instant,
@@ -56,7 +56,7 @@ pub struct Loop<'slice, Item: Clone> {
 #[cfg(test)]
 impl<'slice, Item: Clone> Loop<'slice, Item> {
     #[inline]
-    pub fn new(slice: &'slice [Item]) -> Self {
+    pub(crate) fn new(slice: &'slice [Item]) -> Self {
         Self {
             index: 0,
             slice,

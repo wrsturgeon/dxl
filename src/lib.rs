@@ -5,12 +5,13 @@
 )]
 #![feature(generic_const_exprs, never_type)]
 
-pub mod compiletime;
-pub mod constants;
-pub mod crc;
-pub mod parse;
-pub mod runtime;
-pub mod stream;
+mod constants;
+pub mod control_table;
+mod crc;
+pub mod instruction;
+pub mod packet;
+mod parse;
+mod stream;
 
 #[cfg(test)]
-pub mod test_util;
+mod test_util;

@@ -1,8 +1,8 @@
 use {
     crate::{
-        compiletime::instruction::Instruction,
         constants::{WrongByte, C16, C8},
         crc::Crc,
+        instruction::Instruction,
         parse::Parse,
         stream::{self, Stream},
     },
@@ -75,7 +75,7 @@ impl fmt::Display for InvalidSoftwareError {
 
 impl SoftwareError {
     #[inline]
-    pub fn check(byte: u8) -> Result<Option<Self>, InvalidSoftwareError> {
+    fn check(byte: u8) -> Result<Option<Self>, InvalidSoftwareError> {
         match byte & 0x7F {
             0x00 => Ok(None),
             0x01 => Ok(Some(Self::ResultFail)),
@@ -133,7 +133,7 @@ impl<Insn: Instruction> fmt::Display for ParseOrCrcError<Insn> {
     }
 }
 
-pub struct WithErrorCode<Insn: Instruction> {
+struct WithErrorCode<Insn: Instruction> {
     software_error: Option<SoftwareError>,
     hardware_error: bool,
     parameters: <Insn::Recv as Parse<u8>>::Output,
@@ -141,7 +141,7 @@ pub struct WithErrorCode<Insn: Instruction> {
 }
 
 // #[repr(C, packed)]
-pub struct WithoutCrc<Insn: Instruction, const ID: u8>(PhantomData<Insn>)
+struct WithoutCrc<Insn: Instruction, const ID: u8>(PhantomData<Insn>)
 where
     [(); { core::mem::size_of::<Insn::Recv>() as u16 + 4 } as usize]:;
 /*
@@ -297,7 +297,7 @@ where
 mod test {
     use {
         super::*,
-        crate::{compiletime::instruction, stream, test_util},
+        crate::{instruction, stream, test_util},
         core::pin::pin,
         quickcheck::{Arbitrary, Gen, TestResult},
         quickcheck_macros::quickcheck,
@@ -355,7 +355,7 @@ mod test {
             0xFF, 0xFF, 0xFD, 0x00, 0x01, 0x07, 0x00, 0x55, 0x00, 0x06, 0x04, 0x26, 0x65, 0x5D,
         ];
         let mut s = stream::WithLog(stream::Loop::new(&status_packet));
-        let future = crate::compiletime::packet::parse::<instruction::Ping, 0x01>(&mut s);
+        let future = crate::packet::parse::<instruction::Ping, 0x01>(&mut s);
         let actual = match test_util::trivial_future(pin!(future)) {
             Ok(ok) => ok,
             Err(e) => panic!("{e}"),

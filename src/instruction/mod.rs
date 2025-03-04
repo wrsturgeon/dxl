@@ -1,8 +1,8 @@
 pub mod recv;
-pub mod send;
+mod send;
 
 use {
-    crate::{compiletime::control_table, parse::Parse},
+    crate::{control_table, parse::Parse},
     core::{fmt, marker::PhantomData},
 };
 

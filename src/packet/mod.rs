@@ -1,4 +1,4 @@
-pub mod recv;
+mod recv;
 pub mod send;
 
 pub enum Error {
@@ -20,7 +20,7 @@ impl core::fmt::Display for Error {
 }
 
 #[inline]
-pub const fn new<Insn: crate::compiletime::instruction::Instruction, const ID: u8>(
+pub const fn new<Insn: crate::instruction::Instruction, const ID: u8>(
     parameters: Insn::Send,
 ) -> send::WithCrc<Insn, ID>
 where
@@ -49,7 +49,7 @@ where
 }
 
 #[inline(always)]
-pub async fn parse<Insn: crate::compiletime::instruction::Instruction, const ID: u8>(
+pub async fn parse<Insn: crate::instruction::Instruction, const ID: u8>(
     s: &mut impl crate::stream::Stream<Item = u8>,
 ) -> Result<<recv::WithCrc<Insn, ID> as crate::parse::Parse<u8>>::Output, Error>
 where
@@ -75,7 +75,7 @@ mod test {
     use {
         super::*,
         crate::{
-            compiletime::instruction,
+            instruction,
             stream::{self, Stream},
             test_util,
         },

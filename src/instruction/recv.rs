@@ -1,7 +1,7 @@
 #![expect(clippy::new_without_default, reason = "would be inconsistent")]
 
 use {
-    crate::{compiletime::control_table, parse::Parse, stream::Stream},
+    crate::{control_table, parse::Parse, stream::Stream},
     core::marker::PhantomData,
 };
 
@@ -52,7 +52,7 @@ where
 pub struct Write<Address: control_table::Item>(PhantomData<Address>);
 impl<Address: control_table::Item> Write<Address> {
     #[inline(always)]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(PhantomData)
     }
 }
@@ -69,7 +69,7 @@ impl<Address: control_table::Item> Parse<u8> for Write<Address> {
 pub struct RegWrite<Address: control_table::Item>(PhantomData<Address>);
 impl<Address: control_table::Item> RegWrite<Address> {
     #[inline(always)]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self(PhantomData)
     }
 }

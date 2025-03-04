@@ -1,22 +1,22 @@
 #[repr(transparent)]
 #[derive(Default)]
-pub struct Crc {
+pub(crate) struct Crc {
     acc: u16,
 }
 
 impl Crc {
     #[inline(always)]
-    pub const fn collapse(self) -> u16 {
+    pub(crate) const fn collapse(self) -> u16 {
         self.acc
     }
 
     #[inline(always)]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { acc: 0 }
     }
 
     #[inline]
-    pub const fn push(&mut self, next_byte: u8) {
+    pub(crate) const fn push(&mut self, next_byte: u8) {
         const TABLE: [u16; 256] = [
             0x0000, 0x8005, 0x800F, 0x000A, 0x801B, 0x001E, 0x0014, 0x8011, //
             0x8033, 0x0036, 0x003C, 0x8039, 0x0028, 0x802D, 0x8027, 0x0022, //
@@ -59,7 +59,7 @@ impl Crc {
 }
 
 #[inline]
-pub const fn recurse_over_bytes(crc: &mut Crc, slice: &[u8]) {
+pub(crate) const fn recurse_over_bytes(crc: &mut Crc, slice: &[u8]) {
     match *slice {
         [] => {}
         [head, ref tail @ ..] => {

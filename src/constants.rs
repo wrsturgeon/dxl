@@ -4,17 +4,12 @@ use {
 };
 
 #[repr(transparent)]
-pub struct C8<const N: u8>(u8);
+pub(crate) struct C8<const N: u8>(u8);
 
 impl<const N: u8> C8<N> {
     #[inline(always)]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self(N)
-    }
-
-    #[inline(always)]
-    pub const fn get(&self) -> u8 {
-        self.0
     }
 }
 
@@ -44,21 +39,16 @@ impl<const N: u8> Parse<u8> for C8<N> {
 }
 
 #[repr(C, packed)]
-pub struct C16<const N: u16> {
+pub(crate) struct C16<const N: u16> {
     little_endian: [u8; 2],
 }
 
 impl<const N: u16> C16<N> {
     #[inline(always)]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             little_endian: N.to_le_bytes(),
         }
-    }
-
-    #[inline(always)]
-    pub const fn get(&self) -> u16 {
-        u16::from_le_bytes(self.little_endian)
     }
 }
 
@@ -87,8 +77,8 @@ where
 
 #[derive(Debug)]
 pub struct WrongByte {
-    pub expected: u8,
-    pub actual: u8,
+    expected: u8,
+    actual: u8,
 }
 
 impl fmt::Display for WrongByte {
