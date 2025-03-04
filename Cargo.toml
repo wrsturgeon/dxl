@@ -6,7 +6,11 @@ edition = "2024"
 [patch.crates-io]
 quickcheck = { git = "https://github.com/burntsushi/quickcheck.git" }
 quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git" }
+strum = { git = "https://github.com/peternator7/strum.git" }
+strum_macros = { git = "https://github.com/peternator7/strum.git" }
 
 [dev-dependencies]
 quickcheck = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
 quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
+strum = { git = "https://github.com/peternator7/strum.git", default-features = false }
+strum_macros = { git = "https://github.com/peternator7/strum.git", default-features = false }

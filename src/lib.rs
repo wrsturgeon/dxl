@@ -3,12 +3,10 @@
     incomplete_features,
     reason = "`generic_const_exprs` necessary to precompute packets"
 )]
-#![feature(
-    // const_trait_impl,
-    generic_const_exprs,
-)]
+#![feature(generic_const_exprs, never_type)]
 
 pub mod compiletime;
 pub mod constants;
 pub mod crc;
+pub mod parse;
 pub mod runtime;
