@@ -34,10 +34,9 @@ where
 pub async fn parse<
     Insn: crate::compiletime::instruction::Instruction,
     const ID: u8,
-    F: Future<Output = u8>,
-    Next: FnMut() -> F,
+    S: crate::stream::Stream<Item = u8>,
 >(
-    next: &mut Next,
+    s: &mut S,
 ) -> Result<
     <recv::WithCrc<Insn, ID> as crate::parse::Parse<u8>>::Output,
     <recv::WithCrc<Insn, ID> as crate::parse::Parse<u8>>::Error,
@@ -47,5 +46,5 @@ where
     [(); { ((core::mem::size_of::<Insn::Recv>() as u16 + 4) & 0xFF) as u8 } as usize]:,
     [(); { ((core::mem::size_of::<Insn::Recv>() as u16 + 4) >> 8) as u8 } as usize]:,
 {
-    <recv::WithCrc<Insn, ID> as crate::parse::Parse<u8>>::parse(next, &mut |_| {}).await
+    <recv::WithCrc<Insn, ID> as crate::parse::Parse<u8>>::parse(s).await
 }

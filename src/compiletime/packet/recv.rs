@@ -4,6 +4,7 @@ use {
         constants::{WrongByte, C16, C8},
         crc::Crc,
         parse::Parse,
+        stream::{self, Stream},
     },
     core::marker::PhantomData,
 };
@@ -135,40 +136,37 @@ where
     type Error = ParseError<Insn>;
 
     #[inline]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        next: &mut Next,
-        callback: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
-        let ((), (), ()) = <(C8<0xFF>, C8<0xFF>, C8<0xFD>) as Parse<u8>>::parse(next, callback)
+    async fn parse<S: Stream<Item = u8>>(s: &mut S) -> Result<Self::Output, Self::Error> {
+        let ((), (), ()) = <(C8<0xFF>, C8<0xFF>, C8<0xFD>) as Parse<u8>>::parse(s)
             .await
             .map_err(Self::Error::WrongHeader)?;
-        let () = <C8<0x00> as Parse<u8>>::parse(next, callback)
+        let () = <C8<0x00> as Parse<u8>>::parse(s)
             .await
             .map_err(Self::Error::WrongReservedByte)?;
-        let () = <C8<ID> as Parse<u8>>::parse(next, callback)
+        let () = <C8<ID> as Parse<u8>>::parse(s)
             .await
             .map_err(Self::Error::WrongId)?;
-        let () = <C16<{ core::mem::size_of::<Insn::Recv>() as u16 + 4 }> as Parse<u8>>::parse(
-            next, callback,
-        )
-        .await
-        .map_err(Self::Error::WrongLength)?;
-        let () = <C8<0x55> as Parse<u8>>::parse(next, callback)
+        let () = <C16<{ core::mem::size_of::<Insn::Recv>() as u16 + 4 }> as Parse<u8>>::parse(s)
+            .await
+            .map_err(Self::Error::WrongLength)?;
+        let () = <C8<0x55> as Parse<u8>>::parse(s)
             .await
             .map_err(Self::Error::WrongInstruction)?;
         let mut crc_state = const { Self::crc_init() };
         let (software_error, hardware_error) = {
-            let byte: u8 = next().await;
-            callback(byte);
+            let byte: u8 = s.next().await;
             crc_state.push(byte);
             (
                 SoftwareError::check(byte).map_err(Self::Error::InvalidSoftwareError)?,
                 (byte & 0x80) != 0,
             )
         };
-        let parameters = <Insn::Recv as Parse<u8>>::parse(next, &mut |byte| crc_state.push(byte))
-            .await
-            .map_err(Self::Error::InstructionSpecific)?;
+        let parameters = <Insn::Recv as Parse<u8>>::parse(&mut stream::WithCrc {
+            internal: s,
+            crc: &mut crc_state,
+        })
+        .await
+        .map_err(Self::Error::InstructionSpecific)?;
         let expected_crc = crc_state.collapse();
         Ok(Self::Output {
             software_error,
@@ -202,19 +200,16 @@ where
     type Error = Error<Insn>;
 
     #[inline]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        next: &mut Next,
-        callback: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn parse<S: Stream<Item = u8>>(s: &mut S) -> Result<Self::Output, Self::Error> {
         let WithErrorCode {
             software_error,
             hardware_error,
             parameters,
             expected_crc,
-        } = WithoutCrc::<Insn, ID>::parse(next, callback)
+        } = WithoutCrc::<Insn, ID>::parse(s)
             .await
             .map_err(|e| Error::Parsing(ParseOrCrcError::Parse(e)))?;
-        let Ok(actual_crc) = u16::parse(next, callback).await;
+        let Ok(actual_crc) = u16::parse(s).await;
         if actual_crc != expected_crc {
             return Err(Error::Parsing(ParseOrCrcError::Crc {
                 expected: expected_crc,

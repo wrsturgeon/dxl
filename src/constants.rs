@@ -1,4 +1,4 @@
-use crate::parse::Parse;
+use crate::{parse::Parse, stream::Stream};
 
 #[repr(transparent)]
 pub struct C8<const N: u8>(u8);
@@ -27,12 +27,8 @@ impl<const N: u8> Parse<u8> for C8<N> {
     type Error = WrongByte;
 
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        next: &mut Next,
-        callback: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
-        let actual = next().await;
-        callback(actual);
+    async fn parse<S: Stream<Item = u8>>(s: &mut S) -> Result<Self::Output, Self::Error> {
+        let actual = s.next().await;
         if actual == N {
             Ok(())
         } else {
@@ -79,12 +75,9 @@ where
     type Error = WrongByte;
 
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        next: &mut Next,
-        callback: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
-        let () = <C8<{ (N & 0xFF) as u8 }> as Parse<u8>>::parse(next, callback).await?;
-        let () = <C8<{ (N >> 8) as u8 }> as Parse<u8>>::parse(next, callback).await?;
+    async fn parse<S: Stream<Item = u8>>(s: &mut S) -> Result<Self::Output, Self::Error> {
+        let () = <C8<{ (N & 0xFF) as u8 }> as Parse<u8>>::parse(s).await?;
+        let () = <C8<{ (N >> 8) as u8 }> as Parse<u8>>::parse(s).await?;
         Ok(())
     }
 }

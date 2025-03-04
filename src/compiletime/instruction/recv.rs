@@ -1,7 +1,7 @@
 #![expect(clippy::new_without_default, reason = "would be inconsistent")]
 
 use {
-    crate::{compiletime::control_table, parse::Parse},
+    crate::{compiletime::control_table, parse::Parse, stream::Stream},
     core::marker::PhantomData,
 };
 
@@ -13,16 +13,10 @@ impl Parse<u8> for Ping {
     type Output = Self;
     type Error = !;
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        next: &mut Next,
-        callback: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
-        let model_number_lo = next().await;
-        callback(model_number_lo);
-        let model_number_hi = next().await;
-        callback(model_number_hi);
-        let firmware_version = next().await;
-        callback(firmware_version);
+    async fn parse<S: Stream<Item = u8>>(s: &mut S) -> Result<Self::Output, Self::Error> {
+        let model_number_lo = s.next().await;
+        let model_number_hi = s.next().await;
+        let firmware_version = s.next().await;
         Ok(Self {
             model_number: u16::from_le_bytes([model_number_lo, model_number_hi]),
             firmware_version,
@@ -43,20 +37,9 @@ where
     type Output = Self;
     type Error = !;
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        next: &mut Next,
-        callback: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
-        let mut buffer = [const { core::mem::MaybeUninit::uninit() }; Address::BYTES as usize];
-        for uninit in &mut buffer {
-            let byte = next().await;
-            uninit.write(byte);
-            callback(byte);
-        }
-        let ptr: *const [core::mem::MaybeUninit<u8>; Address::BYTES as usize] = &buffer;
-        let cast: *const [u8; Address::BYTES as usize] = ptr.cast();
+    async fn parse<S: Stream<Item = u8>>(s: &mut S) -> Result<Self::Output, Self::Error> {
         Ok(Self {
-            bytes: unsafe { cast.read() },
+            bytes: [s.next().await; Address::BYTES as usize],
         })
     }
 }
@@ -72,10 +55,7 @@ impl<Address: control_table::Item> Parse<u8> for Write<Address> {
     type Output = Self;
     type Error = !;
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        _: &mut Next,
-        _: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
         Ok(Self::new())
     }
 }
@@ -91,10 +71,7 @@ impl<Address: control_table::Item> Parse<u8> for RegWrite<Address> {
     type Output = Self;
     type Error = !;
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        _: &mut Next,
-        _: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
         Ok(Self::new())
     }
 }
@@ -104,10 +81,7 @@ impl Parse<u8> for Action {
     type Output = Self;
     type Error = !;
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        _: &mut Next,
-        _: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
         Ok(Self)
     }
 }
@@ -117,10 +91,7 @@ impl Parse<u8> for FactoryReset {
     type Output = Self;
     type Error = !;
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        _: &mut Next,
-        _: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
         Ok(Self)
     }
 }
@@ -130,10 +101,7 @@ impl Parse<u8> for Reboot {
     type Output = Self;
     type Error = !;
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        _: &mut Next,
-        _: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
+    async fn parse<S: Stream<Item = u8>>(_: &mut S) -> Result<Self::Output, Self::Error> {
         Ok(Self)
     }
 }

@@ -1,12 +1,11 @@
+use crate::stream::Stream;
+
 #[expect(async_fn_in_trait, reason = "fuck off")]
 pub trait Parse<Input>: Sized {
     type Output;
     type Error;
 
-    async fn parse<Callback: FnMut(u8), F: Future<Output = Input>, Next: FnMut() -> F>(
-        next: &mut Next,
-        callback: &mut Callback,
-    ) -> Result<Self::Output, Self::Error>;
+    async fn parse<S: Stream<Item = Input>>(s: &mut S) -> Result<Self::Output, Self::Error>;
 }
 
 impl Parse<u8> for u16 {
@@ -14,14 +13,9 @@ impl Parse<u8> for u16 {
     type Error = !;
 
     #[inline(always)]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = u8>, Next: FnMut() -> F>(
-        next: &mut Next,
-        callback: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
-        let lo = next().await;
-        callback(lo);
-        let hi = next().await;
-        callback(hi);
+    async fn parse<S: Stream<Item = u8>>(s: &mut S) -> Result<Self::Output, Self::Error> {
+        let lo = s.next().await;
+        let hi = s.next().await;
         Ok(Self::from_le_bytes([lo, hi]))
     }
 }
@@ -38,14 +32,7 @@ impl<
     type Error = E;
 
     #[inline]
-    async fn parse<Callback: FnMut(u8), F: Future<Output = Input>, Next: FnMut() -> F>(
-        next: &mut Next,
-        callback: &mut Callback,
-    ) -> Result<Self::Output, Self::Error> {
-        Ok((
-            A::parse(next, callback).await?,
-            B::parse(next, callback).await?,
-            C::parse(next, callback).await?,
-        ))
+    async fn parse<S: Stream<Item = Input>>(s: &mut S) -> Result<Self::Output, Self::Error> {
+        Ok((A::parse(s).await?, B::parse(s).await?, C::parse(s).await?))
     }
 }
