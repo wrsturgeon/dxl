@@ -5,7 +5,9 @@ use crate::{constants::C16, control_table};
 pub struct Ping;
 impl Ping {
     #[inline(always)]
-    pub const fn new() -> Self { Self }
+    pub const fn new() -> Self {
+        Self
+    }
 }
 
 #[repr(C, packed)]
@@ -76,17 +78,23 @@ where
 pub struct Action;
 impl Action {
     #[inline(always)]
-    pub const fn new() -> Self { Self }
+    pub const fn new() -> Self {
+        Self
+    }
 }
 
 pub struct FactoryReset;
 impl FactoryReset {
     #[inline(always)]
-    pub const fn new() -> Self { Self }
+    pub const fn new() -> Self {
+        Self
+    }
 }
 
 pub struct Reboot;
 impl Reboot {
     #[inline(always)]
-    pub const fn new() -> Self { Self }
+    pub const fn new() -> Self {
+        Self
+    }
 }

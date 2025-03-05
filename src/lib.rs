@@ -11,7 +11,7 @@ mod crc;
 pub mod instruction;
 pub mod packet;
 mod parse;
-mod stream;
+pub mod stream;
 
 #[cfg(test)]
 mod test_util;
