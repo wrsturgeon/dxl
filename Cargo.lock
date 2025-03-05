@@ -59,7 +59,7 @@ dependencies = [
 [[package]]
 name = "quickcheck"
 version = "1.0.3"
-source = "git+https://github.com/burntsushi/quickcheck.git#aa968a94650b5d4d572c4ef581a7f5eb259aa0d2"
+source = "git+https://github.com/burntsushi/quickcheck.git#2ca27244afaf1bb0f3eb7a3e5f9dca73394daff5"
 dependencies = [
  "rand",
 ]
@@ -67,7 +67,7 @@ dependencies = [
 [[package]]
 name = "quickcheck_macros"
 version = "1.0.0"
-source = "git+https://github.com/burntsushi/quickcheck.git#aa968a94650b5d4d572c4ef581a7f5eb259aa0d2"
+source = "git+https://github.com/burntsushi/quickcheck.git#2ca27244afaf1bb0f3eb7a3e5f9dca73394daff5"
 dependencies = [
  "proc-macro2",
  "quote",

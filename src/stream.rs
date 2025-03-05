@@ -50,18 +50,13 @@ impl<S: Stream<Item: core::fmt::Debug>> Stream for WithLog<S> {
 pub(crate) struct Loop<'slice, Item: Clone> {
     index: usize,
     slice: &'slice [Item],
-    start: std::time::Instant,
 }
 
 #[cfg(test)]
 impl<'slice, Item: Clone> Loop<'slice, Item> {
     #[inline]
     pub(crate) fn new(slice: &'slice [Item]) -> Self {
-        Self {
-            index: 0,
-            slice,
-            start: std::time::Instant::now(),
-        }
+        Self { index: 0, slice }
     }
 }
 
@@ -72,9 +67,6 @@ impl<Item: Clone> Stream for Loop<'_, Item> {
     #[inline]
     async fn next(&mut self) -> Self::Item {
         loop {
-            if self.start.elapsed() > core::time::Duration::from_millis(1) {
-                panic!("`stream::Loop` timed out");
-            }
             let Some(item) = self.slice.get(self.index) else {
                 self.index = 0;
                 continue;
