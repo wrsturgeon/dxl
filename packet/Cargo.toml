@@ -1,0 +1,13 @@
+[package]
+name = "dxl-packet"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+log = { git = "https://github.com/rust-lang/log.git", default-features = false }
+
+[dev-dependencies]
+quickcheck = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
+quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
+strum = { git = "https://github.com/peternator7/strum.git", default-features = false }
+strum_macros = { git = "https://github.com/peternator7/strum.git", default-features = false }

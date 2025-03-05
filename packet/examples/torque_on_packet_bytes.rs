@@ -4,7 +4,7 @@
 )]
 #![feature(generic_const_exprs)]
 
-use dxl::{
+use dxl_packet::{
     control_table,
     instruction::{self, Instruction},
     packet::{self, send},
