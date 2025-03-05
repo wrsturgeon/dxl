@@ -1,5 +1,5 @@
 pub mod recv;
-pub mod send;
+mod send;
 
 use {
     crate::{control_table, parse::Parse},
