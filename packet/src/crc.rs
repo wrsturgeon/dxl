@@ -56,15 +56,15 @@ impl Crc {
         let i = acc.to_le_bytes()[1] ^ next_byte;
         *acc = (*acc << 8) ^ TABLE[i as usize];
     }
-}
 
-#[inline]
-pub(crate) const fn recurse_over_bytes(crc: &mut Crc, slice: &[u8]) {
-    match *slice {
-        [] => {}
-        [head, ref tail @ ..] => {
-            crc.push(head);
-            recurse_over_bytes(crc, tail)
+    #[inline]
+    pub(crate) const fn recurse_over_bytes(&mut self, slice: &[u8]) {
+        match *slice {
+            [] => {}
+            [head, ref tail @ ..] => {
+                self.push(head);
+                self.recurse_over_bytes(tail)
+            }
         }
     }
 }

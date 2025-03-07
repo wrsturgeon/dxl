@@ -46,6 +46,7 @@ impl<S: Stream<Item: core::fmt::Debug>> Stream for WithLog<S> {
     }
 }
 
+/*
 #[cfg(test)]
 pub(crate) struct Loop<'slice, Item: Clone> {
     index: usize,
@@ -76,3 +77,4 @@ impl<Item: Clone> Stream for Loop<'_, Item> {
         }
     }
 }
+*/

@@ -4,17 +4,13 @@
 )]
 #![feature(generic_const_exprs)]
 
-use dxl_packet::{
-    control_table,
-    instruction::{self, Instruction},
-    packet::{self, send},
-};
+use dxl_packet::{control_table, packet, send};
 
-type Insn = instruction::Write<control_table::GoalPosition>;
+type Insn = send::Write<control_table::GoalPosition>;
 const ID: u8 = 1;
 
-const PACKET: send::WithCrc<Insn, ID> =
-    packet::new::<Insn, ID>(<Insn as Instruction>::Send::new(512_u32.to_le_bytes()));
+const PACKET: packet::send::WithCrc<Insn, ID> =
+    packet::new(send::Write::new(512_u32.to_le_bytes()));
 
 fn main() {
     println!("{:02X?}", PACKET.as_buffer());

@@ -1,0 +1,9 @@
+[package]
+name = "dxl-driver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dxl-packet = { path = "../packet", default-features = false }
+log = { git = "https://github.com/rust-lang/log.git", default-features = false }
+paste = { git = "https://github.com/dtolnay/paste.git", default-features = false }

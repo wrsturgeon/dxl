@@ -1,3 +1,4 @@
+/*
 use core::{pin::Pin, task};
 
 pub(crate) fn trivial_future<F: Future>(pin: Pin<&mut F>) -> F::Output {
@@ -6,3 +7,4 @@ pub(crate) fn trivial_future<F: Future>(pin: Pin<&mut F>) -> F::Output {
         task::Poll::Ready(ready) => ready,
     }
 }
+*/

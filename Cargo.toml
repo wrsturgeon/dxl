@@ -1,10 +1,26 @@
 [workspace]
 resolver = "2"
-members = ["packet"]
+members = ["driver", "packet", "rp"]
 
 [patch.crates-io]
+# bt-hci = { git = "https://github.com/embassy-rs/bt-hci.git" }
+# cortex-m = { git = "https://github.com/rust-embedded/cortex-m.git" }
+cortex-m-rt = { git = "https://github.com/rust-embedded/cortex-m.git" }
+# cyw43 = { git = "https://github.com/embassy-rs/embassy.git" }
+# cyw43-pio = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-executor = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git" }
+# embassy-usb = { git = "https://github.com/embassy-rs/embassy.git" }
+# embassy-usb-logger = { git = "https://github.com/embassy-rs/embassy.git" }
+embedded-io = { git = "https://github.com/rust-embedded/embedded-hal.git" }
+embedded-io-async = { git = "https://github.com/rust-embedded/embedded-hal.git" }
 log = { git = "https://github.com/rust-lang/log.git" }
+paste = { git = "https://github.com/dtolnay/paste.git" }
 quickcheck = { git = "https://github.com/burntsushi/quickcheck.git" }
 quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git" }
+# static_cell = { git = "https://github.com/embassy-rs/static-cell.git" }
 strum = { git = "https://github.com/peternator7/strum.git" }
 strum_macros = { git = "https://github.com/peternator7/strum.git" }

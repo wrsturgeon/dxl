@@ -1,0 +1,19 @@
+[package]
+name = "dxl-rp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dxl-driver = { path = "../driver", default-features = false }
+dxl-packet = { path = "../packet", default-features = false }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy.git", default-features = false }
+embassy-rp = { git = "https://github.com/embassy-rs/embassy.git", features = [
+  "binary-info",
+  "critical-section-impl",
+  "rp235xa",
+  "time-driver",
+  "unstable-pac",
+] }
+embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
+embassy-time = { git = "https://github.com/embassy-rs/embassy.git", default-features = false }
+log = { git = "https://github.com/rust-lang/log.git", default-features = false }

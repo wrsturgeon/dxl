@@ -1,4 +1,4 @@
-mod recv;
+pub(crate) mod recv;
 pub mod send;
 
 pub enum Error {
@@ -20,45 +20,43 @@ impl core::fmt::Display for Error {
 }
 
 #[inline]
-pub const fn new<Insn: crate::instruction::Instruction, const ID: u8>(
-    parameters: Insn::Send,
+pub const fn new<Insn: crate::Instruction, const ID: u8>(
+    instruction: Insn,
 ) -> send::WithCrc<Insn, ID>
 where
-    [(); { core::mem::size_of::<Insn::Send>() as u16 + 3 } as usize]:,
+    [(); { core::mem::size_of::<Insn>() as u16 + 3 } as usize]:,
     [(); { Insn::BYTE } as usize]:,
 {
-    let without_crc = send::WithoutCrc::new(parameters);
+    let without_crc = send::WithoutCrc::new(instruction);
     let crc = {
         let mut crc_state = const { send::WithoutCrc::<Insn, ID>::crc_init() };
-        crate::crc::recurse_over_bytes(&mut crc_state, {
+        let () = crc_state.recurse_over_bytes({
             let ptr = {
                 let init_ptr = &without_crc as *const _ as *const u8;
                 let offset = const {
                     (core::mem::size_of::<send::WithoutCrc<Insn, ID>>()
-                        - core::mem::size_of::<Insn::Send>()) as isize
+                        - core::mem::size_of::<Insn>()) as isize
                 };
                 unsafe { init_ptr.byte_offset(offset) }
             };
-            unsafe {
-                core::slice::from_raw_parts(ptr, const { core::mem::size_of::<Insn::Send>() })
-            }
+            unsafe { core::slice::from_raw_parts(ptr, const { core::mem::size_of::<Insn>() }) }
         });
         crc_state.collapse().to_le_bytes()
     };
     send::WithCrc { without_crc, crc }
 }
 
+/*
 #[inline(always)]
-pub async fn parse<Insn: crate::instruction::Instruction, const ID: u8>(
-    s: &mut impl crate::stream::Stream<Item = u8>,
-) -> Result<<recv::WithCrc<Insn, ID> as crate::parse::Parse<u8>>::Output, Error>
-where
-    [(); { core::mem::size_of::<Insn::Recv>() as u16 + 4 } as usize]:,
-    [(); { ((core::mem::size_of::<Insn::Recv>() as u16 + 4) & 0xFF) as u8 } as usize]:,
-    [(); { ((core::mem::size_of::<Insn::Recv>() as u16 + 4) >> 8) as u8 } as usize]:,
-{
+pub async fn parse<Insn: crate::Instruction, const ID: u8, RecvError>(
+    s: &mut impl crate::stream::Stream<Item = Result<u8, RecvError>>,
+) -> Result<<recv::WithCrc<Insn, ID> as crate::parse::Parse<u8>>::Output, Error> {
     loop {
-        return match <recv::WithCrc<Insn, ID> as crate::parse::Parse<u8>>::parse(s).await {
+        return match <recv::WithCrc<Insn, ID> as crate::parse::Parse<Result<u8, RecvError>>>::parse(
+            s,
+        )
+        .await
+        {
             Ok(ok) => Ok(ok),
             Err(recv::Error::Parsing(e)) => {
                 log::error!("Parsing error: {e}; trying again...");
@@ -69,7 +67,9 @@ where
         };
     }
 }
+*/
 
+/*
 #[cfg(test)]
 mod test {
     use {
@@ -85,7 +85,7 @@ mod test {
 
     #[quickcheck]
     fn parse_ping_in_media_res(displacement: u8) {
-        const EXPECTED: instruction::recv::Ping = instruction::recv::Ping {
+        const EXPECTED: crate::recv::Ping = crate::recv::Ping {
             model_number: 1030,
             firmware_version: 38,
         };
@@ -99,7 +99,7 @@ mod test {
             }
             stream::WithLog(s)
         };
-        let future = parse::<instruction::Ping, 0x01>(&mut s);
+        let future = parse::<Ping, 0x01>(&mut s);
         let actual = match test_util::trivial_future(pin!(future)) {
             Ok(ok) => ok,
             Err(e) => panic!("{e}"),
@@ -110,3 +110,4 @@ mod test {
         );
     }
 }
+*/

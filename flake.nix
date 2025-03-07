@@ -28,9 +28,12 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        inherit (fenix.packages.${system}.complete)
-          toolchain
-          ;
+        toolchain =
+          with fenix.packages.${system};
+          combine [
+            complete.toolchain
+            targets.${(builtins.fromTOML (builtins.readFile ./rp/.cargo/config.toml)).build.target}.latest.rust-std
+          ];
         pkgs = import nixpkgs { inherit system; };
         treefmt = treefmt-nix.lib.evalModule pkgs ./.treefmt.nix;
       in
