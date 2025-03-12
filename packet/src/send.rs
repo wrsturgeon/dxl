@@ -1,13 +1,12 @@
-use crate::{constants::C16, control_table, parse, recv, Instruction};
+#![expect(
+    clippy::new_without_default,
+    reason = "extra binary space, inconsistent across instructions"
+)]
 
-// const _ASSERT_ZST_UNIT: () = assert_eq!(core::mem::size_of::<()>(), 0);
-// const _ASSERT_ZST_PING: () = assert_eq!(core::mem::size_of::<Ping>(), 0);
-// const _ASSERT_ZST_ACTION: () = assert_eq!(core::mem::size_of::<Action>(), 0);
-// const _ASSERT_ZST_FACTORY_RESET: () = assert_eq!(core::mem::size_of::<FactoryReset>(), 0);
-// const _ASSERT_ZST_REBOOT: () = assert_eq!(core::mem::size_of::<Reboot>(), 0);
+use crate::{constants::C16, control_table, recv, Instruction};
 
 #[repr(C, packed)]
-#[derive(Debug, Default)]
+#[derive(defmt::Format)]
 pub struct Ping;
 impl Ping {
     #[inline(always)]
@@ -18,11 +17,10 @@ impl Ping {
 impl Instruction for Ping {
     const BYTE: u8 = 0x01;
     type Recv = recv::Ping;
-    type Parser = recv::ParsePing;
 }
 
 #[repr(C, packed)]
-#[derive(Debug, Default)]
+#[derive(defmt::Format)]
 pub struct Read<Address: control_table::Item>
 where
     [(); { Address::ADDRESS as u16 } as usize]:,
@@ -49,11 +47,9 @@ where
 {
     const BYTE: u8 = 0x02;
     type Recv = recv::Read<Address>;
-    type Parser = recv::ParseRead<Address>;
 }
 
 #[repr(C, packed)]
-#[derive(Debug)]
 pub struct Write<Address: control_table::Item>
 where
     [(); { Address::ADDRESS as u16 } as usize]:,
@@ -82,11 +78,24 @@ where
 {
     const BYTE: u8 = 0x03;
     type Recv = ();
-    type Parser = parse::ParseUnit;
+}
+impl<Address: control_table::Item> defmt::Format for Write<Address>
+where
+    [(); { Address::ADDRESS as u16 } as usize]:,
+    [(); Address::BYTES as usize]:,
+{
+    #[inline]
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "Write {{ address: {}, bytes: [ ", Address::DESCRIPTION);
+        let byte: *const u8 = (&raw const self.bytes).cast();
+        for i in 0..Address::BYTES {
+            defmt::write!(f, "x{=u8:X}, ", unsafe { byte.offset(i as _).read() });
+        }
+        defmt::write!(f, "] }}")
+    }
 }
 
 #[repr(C, packed)]
-#[derive(Debug)]
 pub struct RegWrite<Address: control_table::Item>
 where
     [(); { Address::ADDRESS as u16 } as usize]:,
@@ -115,11 +124,29 @@ where
 {
     const BYTE: u8 = 0x04;
     type Recv = ();
-    type Parser = parse::ParseUnit;
+}
+impl<Address: control_table::Item> defmt::Format for RegWrite<Address>
+where
+    [(); { Address::ADDRESS as u16 } as usize]:,
+    [(); Address::BYTES as usize]:,
+{
+    #[inline]
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "RegWrite {{ address: {}, bytes: [ ",
+            Address::DESCRIPTION
+        );
+        let byte: *const u8 = (&raw const self.bytes).cast();
+        for i in 0..Address::BYTES {
+            defmt::write!(f, "x{=u8:X}, ", unsafe { byte.offset(i as _).read() });
+        }
+        defmt::write!(f, "] }}")
+    }
 }
 
 #[repr(C, packed)]
-#[derive(Debug, Default)]
+#[derive(defmt::Format)]
 pub struct Action;
 impl Action {
     #[inline(always)]
@@ -130,11 +157,10 @@ impl Action {
 impl Instruction for Action {
     const BYTE: u8 = 0x05;
     type Recv = ();
-    type Parser = parse::ParseUnit;
 }
 
 #[repr(C, packed)]
-#[derive(Debug, Default)]
+#[derive(defmt::Format)]
 pub struct FactoryReset;
 impl FactoryReset {
     #[inline(always)]
@@ -145,11 +171,10 @@ impl FactoryReset {
 impl Instruction for FactoryReset {
     const BYTE: u8 = 0x06;
     type Recv = ();
-    type Parser = parse::ParseUnit;
 }
 
 #[repr(C, packed)]
-#[derive(Debug, Default)]
+#[derive(defmt::Format)]
 pub struct Reboot;
 impl Reboot {
     #[inline(always)]
@@ -160,5 +185,4 @@ impl Reboot {
 impl Instruction for Reboot {
     const BYTE: u8 = 0x08;
     type Recv = ();
-    type Parser = parse::ParseUnit;
 }

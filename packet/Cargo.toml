@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-log = { git = "https://github.com/rust-lang/log.git", default-features = false }
+defmt = { git = "https://github.com/knurling-rs/defmt.git" }
 
 [dev-dependencies]
 quickcheck = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }

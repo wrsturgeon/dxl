@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-dxl-packet = { path = "../packet", default-features = false }
-log = { git = "https://github.com/rust-lang/log.git", default-features = false }
+defmt = { git = "https://github.com/knurling-rs/defmt.git" }
+dxl-packet = { path = "../packet" }
+embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
 paste = { git = "https://github.com/dtolnay/paste.git", default-features = false }

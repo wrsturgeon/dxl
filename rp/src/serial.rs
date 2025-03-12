@@ -1,73 +1,109 @@
 use {
-    embassy_rp::{
-        dma, gpio, interrupt,
-        uart::{self, Async, Uart},
-        Peripheral,
-    },
-    embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex},
+    embassy_rp::uart::{self, Uart},
+    embassy_time::{with_timeout, Duration, TimeoutError},
 };
 
-pub struct Bus<'uart, 'tx_enable, HardwareUart: uart::Instance>(
-    Mutex<CriticalSectionRawMutex, Devices<'uart, 'tx_enable, HardwareUart>>,
-);
+const DEBUG_POST_PACKET_WAIT: Duration = Duration::from_millis(10);
 
-impl<'uart, 'tx_enable, HardwareUart: uart::Instance> Bus<'uart, 'tx_enable, HardwareUart> {
+#[derive(defmt::Format)]
+pub enum RecvError {
+    TimedOut(TimeoutError),
+    Uart(uart::Error),
+}
+
+/*
+impl defmt::Format for RecvError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::TimedOut(ref e) => {
+                write!(f, "Timed out while waiting for a serial response: {e}")
+            }
+            Self::Uart(ref e) => write!(
+                f,
+                "UART error while trying to receive a serial response: {e:?}"
+            ),
+        }
+    }
+}
+*/
+
+pub(crate) struct RxStream<'lock, 'uart, HardwareUart: uart::Instance> {
+    uart: &'lock mut Uart<'uart, HardwareUart, uart::Async>,
+}
+
+impl<'lock, 'uart, HardwareUart: uart::Instance> RxStream<'lock, 'uart, HardwareUart> {
     #[inline(always)]
-    pub fn new(
-        baud_rate: u32,
-        tx_enable_pin: impl Peripheral<P = impl gpio::Pin> + 'tx_enable,
-        hardware_uart: impl Peripheral<P = HardwareUart> + 'uart,
-        tx_pin: impl Peripheral<P = impl uart::TxPin<HardwareUart>> + 'uart,
-        rx_pin: impl Peripheral<P = impl uart::RxPin<HardwareUart>> + 'uart,
-        interrupts: impl interrupt::typelevel::Binding<
-            HardwareUart::Interrupt,
-            uart::InterruptHandler<HardwareUart>,
-        >,
-        tx_dma: impl Peripheral<P = impl dma::Channel> + 'uart,
-        rx_dma: impl Peripheral<P = impl dma::Channel> + 'uart,
-    ) -> Self {
-        Self(Mutex::new(Devices::new(
-            baud_rate,
-            tx_enable_pin,
-            hardware_uart,
-            tx_pin,
-            rx_pin,
-            interrupts,
-            tx_dma,
-            rx_dma,
-        )))
+    pub const fn new(uart: &'lock mut Uart<'uart, HardwareUart, uart::Async>) -> Self {
+        Self { uart }
+    }
+
+    #[inline]
+    pub async fn next_without_timeout(&mut self) -> Result<u8, uart::Error> {
+        let mut byte: u8 = 0;
+        let ptr = {
+            let single: *mut u8 = &mut byte;
+            let multiple: *mut [u8; 1] = single.cast();
+            unsafe { &mut *multiple }
+        };
+        loop {
+            match self.uart.read(ptr).await {
+                Ok(()) => return Ok(byte),
+                Err(uart::Error::Break) => defmt::warn!("UART break"),
+                Err(e) => return Err(e),
+            }
+        }
     }
 }
 
-struct Devices<'uart, 'tx_enable, HardwareUart: uart::Instance> {
-    uart: Uart<'uart, HardwareUart, Async>,
-    tx_enable: gpio::Output<'tx_enable>,
+impl<'lock, 'uart, HardwareUart: uart::Instance> crate::Stream
+    for RxStream<'lock, 'uart, HardwareUart>
+{
+    type Item = Result<u8, RecvError>;
+
+    #[inline(always)]
+    async fn next(&mut self) -> Self::Item {
+        match with_timeout(crate::TIMEOUT_RECV, self.next_without_timeout()).await {
+            Ok(Ok(ok)) => Ok(ok),
+            Ok(Err(e)) => Err(RecvError::Uart(e)),
+            Err(e) => Err(RecvError::TimedOut(e)),
+        }
+    }
 }
 
-impl<'uart, 'tx_enable, HardwareUart: uart::Instance> Devices<'uart, 'tx_enable, HardwareUart> {
+impl<'lock, 'uart, HardwareUart: uart::Instance> Drop for RxStream<'lock, 'uart, HardwareUart> {
     #[inline]
-    pub fn new(
-        baud_rate: u32,
-        tx_enable_pin: impl Peripheral<P = impl gpio::Pin> + 'tx_enable,
-        hardware_uart: impl Peripheral<P = HardwareUart> + 'uart,
-        tx_pin: impl Peripheral<P = impl uart::TxPin<HardwareUart>> + 'uart,
-        rx_pin: impl Peripheral<P = impl uart::RxPin<HardwareUart>> + 'uart,
-        interrupts: impl interrupt::typelevel::Binding<
-            HardwareUart::Interrupt,
-            uart::InterruptHandler<HardwareUart>,
-        >,
-        tx_dma: impl Peripheral<P = impl dma::Channel> + 'uart,
-        rx_dma: impl Peripheral<P = impl dma::Channel> + 'uart,
-    ) -> Self {
-        let tx_enable = gpio::Output::new(tx_enable_pin, gpio::Level::Low);
-        let uart = Uart::new(hardware_uart, tx_pin, rx_pin, interrupts, tx_dma, rx_dma, {
-            let mut cfg = uart::Config::default();
-            cfg.baudrate = baud_rate;
-            cfg.data_bits = uart::DataBits::DataBits8;
-            cfg.parity = uart::Parity::ParityNone;
-            cfg.stop_bits = uart::StopBits::STOP1;
-            cfg
-        });
-        Self { uart, tx_enable }
+    fn drop(&mut self) {
+        use core::{pin::pin, task};
+
+        #[cfg(debug_assertions)]
+        let start = embassy_time::Instant::now();
+        #[cfg(debug_assertions)]
+        let mut extraneous = false;
+
+        loop {
+            match pin!(self.next_without_timeout())
+                .poll(&mut task::Context::from_waker(task::Waker::noop()))
+            {
+                task::Poll::Ready(Ok(byte)) => {
+                    defmt::error!("Extraneous byte: `x{=u8:X}`", byte);
+                    #[cfg(debug_assertions)]
+                    {
+                        extraneous = true;
+                    }
+                }
+                task::Poll::Ready(Err(e)) => {
+                    defmt::error!("Error while clearing an RX stream: {}", e)
+                }
+                task::Poll::Pending => {
+                    #[cfg(debug_assertions)]
+                    if start.elapsed() < DEBUG_POST_PACKET_WAIT {
+                        continue;
+                    } // else implicitly continue
+                    debug_assert!(!extraneous, "Extraneous bytes");
+                    return;
+                }
+            }
+        }
     }
 }

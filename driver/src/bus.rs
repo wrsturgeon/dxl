@@ -1,15 +1,50 @@
-use {
-    crate::comm::Comm,
-    dxl_packet::{
-        control_table,
-        instruction::{self, Instruction},
-        packet,
-        parse::Parse,
-    },
-    paste::paste,
-};
+use {crate::comm::Comm, paste::paste};
 
-pub struct Bus<C: Comm>(C);
+#[derive(defmt::Format)]
+pub enum Error<C: Comm, Output> {
+    Send(<C as Comm>::SendError),
+    Recv(<C as Comm>::RecvError),
+    Parse(::dxl_packet::packet::recv::PersistentError<Output>),
+}
+
+/*
+impl<C: Comm, Output> defmt::Format for Error<C, Output> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Send(ref e) => write!(f, "Error sending serial communication: {e}"),
+            Self::Recv(ref e) => write!(f, "Error receiving serial communication: {e}"),
+            Self::Parse(ref e) => write!(f, "Error parsing received serial communication: {e}"),
+        }
+    }
+}
+*/
+
+#[derive(defmt::Format)]
+#[cfg(debug_assertions)]
+pub enum IdError {
+    InvalidId { id: u8 },
+    AlreadyInUse { id: u8 },
+}
+
+/*
+#[cfg(debug_assertions)]
+impl defmt::Format for IdError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::InvalidId { id } => write!(f, "Invalid Dynamixel ID: {id}"),
+            Self::AlreadyInUse { id } => write!(f, "Dynamixel ID already in use: {id}"),
+        }
+    }
+}
+*/
+
+pub struct Bus<C: Comm> {
+    comm: C,
+    #[cfg(debug_assertions)]
+    used_ids: [bool; 252],
+}
 
 macro_rules! instruction_method {
     ($id:ident) => {
@@ -17,12 +52,15 @@ macro_rules! instruction_method {
         pub async fn $id<const ID: u8>(
             &mut self,
         ) -> Result<
-            <paste! { instruction::recv::[< $id:camel >] } as Parse<u8>>::Output,
-            crate::Error<C>,
+            paste! { ::dxl_packet::recv::[< $id:camel >] },
+            Error<
+                C,
+                <paste! { ::dxl_packet::send::[< $id:camel >] } as ::dxl_packet::Instruction>::Recv,
+            >,
         > {
-            self.comm::<paste! { instruction::[< $id:camel >] }, ID>({
-                let payload = <paste! { instruction::[< $id:camel >] } as Instruction>::Send::new();
-                log::debug!("Sending {payload:?} to DXL {ID}");
+            self.comm::<ID, paste! { ::dxl_packet::send:: [< $id:camel >] }>({
+                let payload = paste! { ::dxl_packet::send:: [< $id:camel >] ::new() };
+                defmt::debug!("Sending {:X} to DXL {}", payload, ID);
                 payload
             })
             .await
@@ -31,69 +69,104 @@ macro_rules! instruction_method {
 }
 
 macro_rules! control_table_methods {
-    ($id:ident) => { paste! {
-        #[inline]
-        pub async fn [< read_ $id:snake >]<const ID: u8>(
-            &mut self,
-        ) -> Result<<instruction::recv::Read<control_table::$id> as Parse<u8>>::Output, crate::Error<C>> {
-            self.comm::<instruction::Read<control_table::$id>, ID>({
-                let payload = <instruction::Read<control_table::$id> as Instruction>::Send::new();
-                log::debug!("Reading {payload:?} from DXL {ID}");
-                payload
-            })
-            .await
-        }
+    ($id:ident) => {
+        paste! {
+            #[inline]
+            pub async fn [< read_ $id:snake >]<const ID: u8>(
+                &mut self,
+            ) -> Result<::dxl_packet::recv::Read<::dxl_packet::control_table::$id>, Error<C, ::dxl_packet::recv::Read<::dxl_packet::control_table::$id>>> {
+                self.comm::<ID, ::dxl_packet::send::Read<::dxl_packet::control_table::$id>>({
+                    let payload = ::dxl_packet::send::Read::<::dxl_packet::control_table::$id>::new();
+                    defmt::debug!("Read {:X} from DXL {}", payload, ID);
+                    payload
+                })
+                .await
+            }
 
-        #[inline]
-        pub async fn [< write_ $id:snake >]<const ID: u8>(
-            &mut self,
-            bytes: [u8; <control_table::$id as control_table::Item>::BYTES as usize]
-        ) -> Result<<instruction::recv::Write<control_table::$id> as Parse<u8>>::Output, crate::Error<C>> {
-            self.comm::<instruction::Write<control_table::$id>, ID>({
-                let payload = <instruction::Write<control_table::$id> as Instruction>::Send::new(bytes);
-                log::debug!("Writing {payload:?} to DXL {ID}");
-                payload
-            })
-            .await
-        }
+            #[inline]
+            pub async fn [< write_ $id:snake >]<const ID: u8>(
+                &mut self,
+                bytes: [u8; <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize]
+            ) -> Result<::dxl_packet::recv::Write, Error<C, ::dxl_packet::recv::Write>> {
+                self.comm::<ID, ::dxl_packet::send::Write<::dxl_packet::control_table::$id>>({
+                    let payload = ::dxl_packet::send::Write::<::dxl_packet::control_table::$id>::new(bytes);
+                    defmt::debug!("Writing {:X} to DXL {}", payload, ID);
+                    payload
+                })
+                .await
+            }
 
-        #[inline]
-        pub async fn [< reg_write_ $id:snake >]<const ID: u8>(
-            &mut self,
-            bytes: [u8; <control_table::$id as control_table::Item>::BYTES as usize]
-        ) -> Result<<instruction::recv::RegWrite<control_table::$id> as Parse<u8>>::Output, crate::Error<C>> {
-            self.comm::<instruction::RegWrite<control_table::$id>, ID>({
-                let payload = <instruction::RegWrite<control_table::$id> as Instruction>::Send::new(bytes);
-                log::debug!("Register-writing {payload:?} to DXL {ID}");
-                payload
-            })
-            .await
+            #[inline]
+            pub async fn [< reg_write_ $id:snake >]<const ID: u8>(
+                &mut self,
+                bytes: [u8; <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize]
+            ) -> Result<::dxl_packet::recv::RegWrite, Error<C, ::dxl_packet::recv::RegWrite>> {
+                self.comm::<ID, ::dxl_packet::send::RegWrite<::dxl_packet::control_table::$id>>({
+                    let payload = ::dxl_packet::send::RegWrite::<::dxl_packet::control_table::$id>::new(bytes);
+                    defmt::debug!("Register-writing {:X} to DXL {}", payload, ID);
+                    payload
+                })
+                .await
+            }
         }
-    } };
+    };
 }
 
 impl<C: Comm> Bus<C> {
+    #[inline(always)]
+    pub const fn new(comm: C) -> Self {
+        Self {
+            comm,
+            used_ids: [false; 252],
+        }
+    }
+
     #[inline]
-    pub async fn comm<Insn: Instruction, const ID: u8>(
+    #[cfg(debug_assertions)]
+    pub fn check_duplicate_id(&mut self, id: u8) -> Result<(), IdError> {
+        let Some(state) = self.used_ids.get_mut(id as usize) else {
+            return Err(IdError::InvalidId { id });
+        };
+        if *state {
+            return Err(IdError::AlreadyInUse { id });
+        }
+        *state = true;
+        Ok(())
+    }
+
+    #[inline]
+    pub async fn comm<const ID: u8, Insn: ::dxl_packet::Instruction>(
         &mut self,
-        parameters: Insn::Send,
-    ) -> Result<<Insn::Recv as Parse<u8>>::Output, crate::Error<C>>
+        parameters: Insn,
+    ) -> Result<Insn::Recv, Error<C, Insn::Recv>>
     where
         [(); { Insn::BYTE } as usize]:,
-        [(); { core::mem::size_of::<Insn::Send>() as u16 + 3 } as usize]:,
-        [(); { core::mem::size_of::<Insn::Recv>() as u16 + 4 } as usize]:,
-        [(); { ((core::mem::size_of::<Insn::Recv>() as u16 + 4) & 0xFF) as u8 } as usize]:,
-        [(); { ((core::mem::size_of::<Insn::Recv>() as u16 + 4) >> 8) as u8 } as usize]:,
+        [(); { core::mem::size_of::<Insn>() as u16 + 3 } as usize]:,
     {
-        packet::parse::<Insn, ID>(
-            &mut self
-                .0
-                .comm(packet::new::<Insn, ID>(parameters).as_buffer())
+        let mut stream = {
+            let packet = ::dxl_packet::packet::new::<Insn, ID>(parameters);
+            self.comm
+                .comm(packet.as_buffer())
                 .await
-                .map_err(crate::Error::Send)?,
-        )
-        .await
-        .map_err(crate::Error::Packet)
+                .map_err(Error::Send)?
+        };
+        let mut state: ::dxl_packet::packet::recv::Persistent::<Insn, ID> = <::dxl_packet::packet::recv::Persistent::<Insn, ID> as ::dxl_packet::parse::State<_>>::INIT;
+        loop {
+            let byte: u8 = ::dxl_packet::stream::Stream::next(&mut stream)
+                .await
+                .map_err(Error::Recv)?;
+            // defmt::debug!("Read `x{=u8:X}` over serial", byte);
+            state = match ::dxl_packet::parse::State::push(state, byte).map_err(Error::Parse)? {
+                ::dxl_packet::parse::Status::Complete(complete) => {
+                    defmt::debug!("Successfully decoded a packet: {:X}", complete);
+                    return Ok(complete);
+                }
+                ::dxl_packet::parse::Status::Incomplete((updated, ())) => {
+                    // defmt::debug!("Updating parser: {}", updated);
+                    updated
+                }
+            };
+        }
     }
 
     instruction_method!(ping);

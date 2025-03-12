@@ -2,7 +2,10 @@ use crate::crc::Crc;
 
 #[expect(async_fn_in_trait, reason = "fuck off")]
 pub trait Stream {
+    #[cfg(not(test))]
     type Item;
+    #[cfg(test)]
+    type Item: core::fmt::Debug;
     async fn next(&mut self) -> Self::Item;
 }
 
@@ -35,7 +38,7 @@ impl<S: Stream<Item = u8>> Stream for WithCrc<'_, S> {
 pub(crate) struct WithLog<S: Stream>(pub(crate) S);
 
 #[cfg(test)]
-impl<S: Stream<Item: core::fmt::Debug>> Stream for WithLog<S> {
+impl<S: Stream> Stream for WithLog<S> {
     type Item = S::Item;
 
     #[inline]
@@ -46,15 +49,14 @@ impl<S: Stream<Item: core::fmt::Debug>> Stream for WithLog<S> {
     }
 }
 
-/*
 #[cfg(test)]
-pub(crate) struct Loop<'slice, Item: Clone> {
+pub(crate) struct Loop<'slice, Item: Clone + core::fmt::Debug> {
     index: usize,
     slice: &'slice [Item],
 }
 
 #[cfg(test)]
-impl<'slice, Item: Clone> Loop<'slice, Item> {
+impl<'slice, Item: Clone + core::fmt::Debug> Loop<'slice, Item> {
     #[inline]
     pub(crate) fn new(slice: &'slice [Item]) -> Self {
         Self { index: 0, slice }
@@ -62,7 +64,7 @@ impl<'slice, Item: Clone> Loop<'slice, Item> {
 }
 
 #[cfg(test)]
-impl<Item: Clone> Stream for Loop<'_, Item> {
+impl<Item: Clone + core::fmt::Debug> Stream for Loop<'_, Item> {
     type Item = Item;
 
     #[inline]
@@ -77,4 +79,3 @@ impl<Item: Clone> Stream for Loop<'_, Item> {
         }
     }
 }
-*/

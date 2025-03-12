@@ -1,53 +1,126 @@
 #![no_std]
 #![no_main]
-#![feature(generic_const_exprs, never_type)]
+#![feature(generic_const_exprs)]
 #![expect(
     incomplete_features,
     reason = "`generic_const_exprs` necessary to construct Dynamixel packets on the stack"
 )]
 
 mod pull_high;
-mod rx_stream;
+pub mod serial;
 
 use {
     core::ops::DerefMut,
+    dxl_driver::bus::Bus,
     dxl_packet::stream::Stream,
     embassy_futures::yield_now,
     embassy_rp::{
-        gpio,
+        dma, gpio, interrupt,
         uart::{self, Uart},
+        Peripheral,
     },
     embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
     embassy_time::{with_timeout, Duration, TimeoutError},
     pull_high::PullHigh,
 };
 
-const TIMEOUT_SEND: Duration = Duration::from_millis(1);
-const TIMEOUT_RECV: Duration = Duration::from_millis(1);
+const TIMEOUT_LOCK: Duration = Duration::from_millis(100);
+const TIMEOUT_SEND: Duration = Duration::from_millis(100);
+const TIMEOUT_RECV: Duration = Duration::from_millis(100);
 
+#[inline]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "using a `struct` requires ridiculous generics"
+)]
+pub fn bus<'tx_en, 'uart, HardwareUart: uart::Instance>(
+    baud_rate: u32,
+    tx_enable_pin: impl Peripheral<P = impl gpio::Pin> + 'tx_en,
+    uart: impl Peripheral<P = HardwareUart> + 'uart,
+    tx: impl Peripheral<P = impl uart::TxPin<HardwareUart>> + 'uart,
+    rx: impl Peripheral<P = impl uart::RxPin<HardwareUart>> + 'uart,
+    irq: impl interrupt::typelevel::Binding<
+        HardwareUart::Interrupt,
+        uart::InterruptHandler<HardwareUart>,
+    >,
+    tx_dma: impl Peripheral<P = impl dma::Channel> + 'uart,
+    rx_dma: impl Peripheral<P = impl dma::Channel> + 'uart,
+) -> Mutex<Bus<Comm<'tx_en, 'uart, HardwareUart>>> {
+    let comm = Comm::new(baud_rate, tx_enable_pin, uart, tx, rx, irq, tx_dma, rx_dma);
+    let bus = Bus::new(comm);
+    dxl_driver::mutex::Mutex::new(bus)
+}
+
+#[derive(defmt::Format)]
 pub enum Error {
     Write(uart::Error),
     WriteTimeout(TimeoutError),
 }
+
+/*
+impl defmt::Format for Error {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Write(ref e) => write!(f, "Serial error: {e:?}"),
+            Self::WriteTimeout(ref e) => write!(f, "Timeout writing over serial: {e:?}"),
+        }
+    }
+}
+*/
 
 pub struct Comm<'tx_en, 'uart, HardwareUart: uart::Instance> {
     tx_enable: gpio::Output<'tx_en>,
     uart: Uart<'uart, HardwareUart, uart::Async>,
 }
 
+impl<'tx_en, 'uart, HardwareUart: uart::Instance> Comm<'tx_en, 'uart, HardwareUart> {
+    #[inline]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "using a `struct` requires ridiculous generics"
+    )]
+    pub fn new(
+        baud_rate: u32,
+        tx_enable_pin: impl Peripheral<P = impl gpio::Pin> + 'tx_en,
+        uart: impl Peripheral<P = HardwareUart> + 'uart,
+        tx: impl Peripheral<P = impl uart::TxPin<HardwareUart>> + 'uart,
+        rx: impl Peripheral<P = impl uart::RxPin<HardwareUart>> + 'uart,
+        irq: impl interrupt::typelevel::Binding<
+            HardwareUart::Interrupt,
+            uart::InterruptHandler<HardwareUart>,
+        >,
+        tx_dma: impl Peripheral<P = impl dma::Channel> + 'uart,
+        rx_dma: impl Peripheral<P = impl dma::Channel> + 'uart,
+    ) -> Self {
+        Self {
+            tx_enable: gpio::Output::new(tx_enable_pin, gpio::Level::Low),
+            uart: Uart::new(uart, tx, rx, irq, tx_dma, rx_dma, {
+                let mut cfg = uart::Config::default();
+                cfg.baudrate = baud_rate;
+                cfg.data_bits = uart::DataBits::DataBits8;
+                cfg.stop_bits = uart::StopBits::STOP1;
+                cfg.parity = uart::Parity::ParityNone;
+                cfg
+            }),
+        }
+    }
+}
+
 impl<'tx_en, 'uart, HardwareUart: uart::Instance> dxl_driver::comm::Comm
     for Comm<'tx_en, 'uart, HardwareUart>
 {
-    type Error = Error;
+    type SendError = Error;
+    type RecvError = serial::RecvError;
 
     #[inline]
-    async fn comm(
-        &mut self,
+    async fn comm<'rx>(
+        &'rx mut self,
         bytes: &[u8],
-    ) -> Result<impl Stream<Item = u8> + 'static, <Self as dxl_driver::comm::Comm>::Error> {
+    ) -> Result<impl 'rx + Stream<Item = Result<u8, Self::RecvError>>, Self::SendError> {
+        // Block incoming transmission ONLY WITHIN THIS SCOPE to allow outgoing transmission:
+        let enable_tx = PullHigh::new(&mut self.tx_enable);
         let () = with_timeout(TIMEOUT_SEND, async {
-            // Block incoming transmission ONLY WITHIN THIS SCOPE to allow outgoing transmission:
-            let _enable_tx = PullHigh::new(&mut self.tx_enable);
             // Asynchronously ask hardware to transmit this buffer:
             let () = self.uart.write(bytes).await?;
             // Wait until it actually starts transmitting:
@@ -58,13 +131,15 @@ impl<'tx_en, 'uart, HardwareUart: uart::Instance> dxl_driver::comm::Comm
             while self.uart.busy() {
                 let () = yield_now().await;
             }
-            // Then lower the `tx_enable` pin by dropping `_enable_tx`:
             Ok(())
         })
         .await
         .map_err(Error::WriteTimeout)?
         .map_err(Error::Write)?;
-        Ok(RxStream::new())
+        // Then lower the `tx_enable` pin by dropping `_enable_tx`:
+        // NOTE: I'm pretty sure this could be implicit, but this couldn't hurt.
+        drop(enable_tx);
+        Ok(serial::RxStream::new(&mut self.uart))
     }
 }
 
@@ -72,17 +147,34 @@ pub struct Mutex<Item>(embassy_sync::mutex::Mutex<CriticalSectionRawMutex, Item>
 
 impl<Item> dxl_driver::mutex::Mutex for Mutex<Item> {
     type Item = Item;
+    type Error = TimeoutError;
 
     #[inline(always)]
-    async fn lock(&self) -> impl DerefMut<Target = Self::Item> {
-        self.0.lock().await
+    fn new(item: Item) -> Self {
+        Self(embassy_sync::mutex::Mutex::new(item))
+    }
+
+    #[inline(always)]
+    async fn lock(&self) -> Result<impl DerefMut<Target = Self::Item>, Self::Error> {
+        with_timeout(TIMEOUT_LOCK, self.0.lock()).await
     }
 }
 
-pub type Actuator<'tx_en, 'uart, 'bus, const ID: u8, HardwareUart: uart::Instance> =
-    dxl_driver::actuator::Actuator<
-        'bus,
-        ID,
-        Comm<'tx_en, 'uart, HardwareUart>,
-        Mutex<Comm<'tx_en, 'uart, HardwareUart>>,
-    >;
+impl<'tx_en, 'uart, HardwareUart: uart::Instance> Mutex<Bus<Comm<'tx_en, 'uart, HardwareUart>>> {
+    #[inline(always)]
+    pub async fn id<const ID: u8>(
+        &self,
+    ) -> Result<
+        Actuator<'tx_en, 'uart, '_, ID, HardwareUart>,
+        dxl_driver::actuator::InitError<Comm<'tx_en, 'uart, HardwareUart>, Self>,
+    > {
+        Actuator::new(self).await
+    }
+}
+
+pub type Actuator<'tx_en, 'uart, 'bus, const ID: u8, HardwareUart> = dxl_driver::actuator::Actuator<
+    'bus,
+    ID,
+    Comm<'tx_en, 'uart, HardwareUart>,
+    Mutex<Bus<Comm<'tx_en, 'uart, HardwareUart>>>,
+>;

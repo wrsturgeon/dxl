@@ -38,7 +38,18 @@
         treefmt = treefmt-nix.lib.evalModule pkgs ./.treefmt.nix;
       in
       {
-        devShells.default = pkgs.mkShell { packages = [ toolchain ]; };
+        devShells.default = pkgs.mkShell {
+          packages =
+            [ toolchain ]
+            ++ (with pkgs; [
+              cargo-expand
+              flip-link
+              picotool
+              probe-rs-tools
+            ]);
+          DEFMT_LOG = "debug";
+          RUST_BACKTRACE = "1";
+        };
         formatter = treefmt.config.build.wrapper;
       }
     );

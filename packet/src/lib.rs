@@ -3,23 +3,21 @@
     incomplete_features,
     reason = "`generic_const_exprs` necessary to construct Dynamixel packets on the stack"
 )]
-#![feature(generic_const_exprs, never_type)]
+#![feature(generic_const_exprs)]
 
 pub mod constants;
 pub mod control_table;
-mod crc;
+pub mod crc;
 pub mod packet;
 pub mod parse;
 pub mod recv;
 pub mod send;
 pub mod stream;
 
-#[cfg(test)]
-mod test_util;
-
-pub trait Instruction: Sized {
+pub trait Instruction: Sized + defmt::Format {
     const BYTE: u8;
 
-    type Recv: core::fmt::Debug;
-    type Parser: parse::State<u8, Output = Self::Recv>;
+    type Recv: recv::Receive;
+    // type ParseState: parse::State<u8, Output = Self::Recv>;
+    // type Parser: parse::MaybeParse<u8, Self::ParseState>;
 }

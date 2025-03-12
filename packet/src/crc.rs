@@ -1,6 +1,6 @@
 #[repr(transparent)]
-#[derive(Default)]
-pub(crate) struct Crc {
+#[derive(defmt::Format)]
+pub struct Crc {
     acc: u16,
 }
 
