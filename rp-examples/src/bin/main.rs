@@ -145,9 +145,8 @@ async fn main(spawner: Spawner) {
     let mut next = Instant::now();
     let mut state = true;
     loop {
-        let () = control.gpio_set(0, state).await;
-        defmt::info!("{}", state);
-        defmt::info!("");
+        // let () = control.gpio_set(0, state).await;
+        // defmt::info!("{}", state);
 
         let () = match actuator
             .write_goal_position(if state { 4095 } else { 0 })
