@@ -3,8 +3,14 @@ name = "dxl-driver"
 version = "0.1.0"
 edition = "2024"
 
+# [dependencies]
+# defmt = { git = "https://github.com/knurling-rs/defmt.git" }
+# dxl-packet = { path = "../packet" }
+# embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
+# paste = { git = "https://github.com/dtolnay/paste.git", default-features = false }
+
 [dependencies]
-defmt = { git = "https://github.com/knurling-rs/defmt.git" }
+defmt = { version = "*" }
 dxl-packet = { path = "../packet" }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
-paste = { git = "https://github.com/dtolnay/paste.git", default-features = false }
+embassy-futures = { version = "*" }
+paste = { version = "*", default-features = false }

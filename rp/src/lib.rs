@@ -13,7 +13,6 @@ use {
     core::ops::DerefMut,
     dxl_driver::bus::Bus,
     dxl_packet::stream::Stream,
-    embassy_futures::yield_now,
     embassy_rp::{
         dma, gpio, interrupt,
         uart::{self, Uart},
@@ -113,11 +112,11 @@ impl<'tx_en, 'uart, HardwareUart: uart::Instance> dxl_driver::comm::Comm
             let () = self.uart.write(bytes).await?;
             // Wait until it actually starts transmitting:
             while !self.uart.busy() {
-                let () = yield_now().await;
+                // let () = embassy_futures::yield_now().await;
             }
             // Then wait until it finishes:
             while self.uart.busy() {
-                // let () = yield_now().await;
+                // let () = embassy_futures::yield_now().await;
             }
             Ok(())
         })

@@ -3,11 +3,20 @@ name = "dxl-packet"
 version = "0.1.0"
 edition = "2024"
 
+# [dependencies]
+# defmt = { git = "https://github.com/knurling-rs/defmt.git" }
+
+# [dev-dependencies]
+# quickcheck = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
+# quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
+# strum = { git = "https://github.com/peternator7/strum.git", default-features = false }
+# strum_macros = { git = "https://github.com/peternator7/strum.git", default-features = false }
+
 [dependencies]
-defmt = { git = "https://github.com/knurling-rs/defmt.git" }
+defmt = { version = "*" }
 
 [dev-dependencies]
-quickcheck = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
-quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git", default-features = false }
-strum = { git = "https://github.com/peternator7/strum.git", default-features = false }
-strum_macros = { git = "https://github.com/peternator7/strum.git", default-features = false }
+quickcheck = { version = "*", default-features = false }
+quickcheck_macros = { version = "*", default-features = false }
+strum = { version = "*", default-features = false }
+strum_macros = { version = "*", default-features = false }

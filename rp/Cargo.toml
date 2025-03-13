@@ -3,12 +3,31 @@ name = "dxl-rp"
 version = "0.1.0"
 edition = "2024"
 
+# [dependencies]
+# defmt = { git = "https://github.com/knurling-rs/defmt.git" }
+# dxl-driver = { path = "../driver" }
+# dxl-packet = { path = "../packet" }
+# embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
+# embassy-rp = { git = "https://github.com/embassy-rs/embassy.git", features = [
+#   "binary-info",
+#   "critical-section-impl",
+#   "defmt",
+#   "rp235xa",
+#   "time-driver",
+#   "unstable-pac",
+# ] }
+# embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
+# embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = [
+#   "defmt",
+#   "defmt-timestamp-uptime",
+# ] }
+
 [dependencies]
-defmt = { git = "https://github.com/knurling-rs/defmt.git" }
+defmt = { version = "*" }
 dxl-driver = { path = "../driver" }
 dxl-packet = { path = "../packet" }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
-embassy-rp = { git = "https://github.com/embassy-rs/embassy.git", features = [
+embassy-futures = { version = "*" }
+embassy-rp = { version = "*", features = [
   "binary-info",
   "critical-section-impl",
   "defmt",
@@ -16,8 +35,5 @@ embassy-rp = { git = "https://github.com/embassy-rs/embassy.git", features = [
   "time-driver",
   "unstable-pac",
 ] }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
-embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = [
-  "defmt",
-  "defmt-timestamp-uptime",
-] }
+embassy-sync = { version = "*" }
+embassy-time = { version = "*", features = ["defmt", "defmt-timestamp-uptime"] }

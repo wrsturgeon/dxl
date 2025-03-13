@@ -18,25 +18,28 @@ codegen-units = 1
 # debuginfo isn't flashed to the device, so it's A-OK:
 debug = 2
 
-[patch.crates-io]
-bt-hci = { git = "https://github.com/embassy-rs/bt-hci.git" }
-cortex-m-rt = { git = "https://github.com/rust-embedded/cortex-m.git" }
-cyw43 = { git = "https://github.com/embassy-rs/embassy.git" }
-cyw43-pio = { git = "https://github.com/embassy-rs/embassy.git" }
-defmt = { git = "https://github.com/knurling-rs/defmt.git" }
-defmt-rtt = { git = "https://github.com/knurling-rs/defmt.git" }
-embassy-executor = { git = "https://github.com/embassy-rs/embassy.git" }
-embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
-embassy-rp = { git = "https://github.com/embassy-rs/embassy.git" }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
-embassy-time = { git = "https://github.com/embassy-rs/embassy.git" }
-embedded-io = { git = "https://github.com/rust-embedded/embedded-hal.git" }
-embedded-io-async = { git = "https://github.com/rust-embedded/embedded-hal.git" }
-panic-probe = { git = "https://github.com/knurling-rs/defmt.git" }
-paste = { git = "https://github.com/dtolnay/paste.git" }
-quickcheck = { git = "https://github.com/burntsushi/quickcheck.git" }
-quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git" }
-reqwest = { git = "https://github.com/seanmonstar/reqwest.git" }
-static_cell = { git = "https://github.com/embassy-rs/static-cell.git" }
-strum = { git = "https://github.com/peternator7/strum.git" }
-strum_macros = { git = "https://github.com/peternator7/strum.git" }
+# [patch.crates-io]
+# bt-hci = { git = "https://github.com/embassy-rs/bt-hci.git" }
+# cortex-m-rt = { git = "https://github.com/rust-embedded/cortex-m.git" }
+# cyw43 = { git = "https://github.com/embassy-rs/embassy.git" }
+# cyw43-pio = { git = "https://github.com/embassy-rs/embassy.git" }
+# defmt = { git = "https://github.com/knurling-rs/defmt.git" }
+# defmt-rtt = { git = "https://github.com/knurling-rs/defmt.git" }
+# embassy-executor = { git = "https://github.com/embassy-rs/embassy.git" }
+# embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
+# embassy-net = { git = "https://github.com/embassy-rs/embassy.git" }
+# embassy-rp = { git = "https://github.com/embassy-rs/embassy.git" }
+# embassy-sync = { git = "https://github.com/embassy-rs/embassy.git" }
+# embassy-time = { git = "https://github.com/embassy-rs/embassy.git" }
+# embedded-io = { git = "https://github.com/rust-embedded/embedded-hal.git" }
+# embedded-io-async = { git = "https://github.com/rust-embedded/embedded-hal.git" }
+# panic-probe = { git = "https://github.com/knurling-rs/defmt.git" }
+# paste = { git = "https://github.com/dtolnay/paste.git" }
+# quickcheck = { git = "https://github.com/burntsushi/quickcheck.git" }
+# quickcheck_macros = { git = "https://github.com/burntsushi/quickcheck.git" }
+# rand = { git = "https://github.com/rust-random/rand.git" }
+# rand_core = { git = "https://github.com/rust-random/rand.git" }
+# reqwest = { git = "https://github.com/seanmonstar/reqwest.git" }
+# static_cell = { git = "https://github.com/embassy-rs/static-cell.git" }
+# strum = { git = "https://github.com/peternator7/strum.git" }
+# strum_macros = { git = "https://github.com/peternator7/strum.git" }

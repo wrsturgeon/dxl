@@ -230,19 +230,6 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
     }
 
     #[inline(always)]
-    async fn init_without_torque(
-        bus: &'bus M,
-        description: &'static str,
-    ) -> Result<Self, InitError<C, M>> {
-        let actuator = Self::init_unconfigured(bus, description).await?;
-        let () = actuator
-            .torque_off()
-            .await
-            .map_err(|error| InitError::Write { id: ID, error })?;
-        Ok(actuator)
-    }
-
-    #[inline(always)]
     async fn init_with_max_velocity(
         bus: &'bus M,
         description: &'static str,
@@ -324,7 +311,7 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
     }
 
     #[inline(always)]
-    async fn reset_acceleration_profile(&self) -> Result<(), crate::Error<C, M, ()>> {
+    pub async fn reset_acceleration_profile(&self) -> Result<(), crate::Error<C, M, ()>> {
         self.write_profile_acceleration(
             // Snappy enough without seeming digital:
             128,
@@ -333,12 +320,12 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
     }
 
     #[inline(always)]
-    async fn torque_off(&self) -> Result<(), crate::Error<C, M, ()>> {
+    pub async fn torque_off(&self) -> Result<(), crate::Error<C, M, ()>> {
         self.write_torque_enable(0).await
     }
 
     #[inline(always)]
-    async fn torque_on(&self) -> Result<(), crate::Error<C, M, ()>> {
+    pub async fn torque_on(&self) -> Result<(), crate::Error<C, M, ()>> {
         self.write_torque_enable(1).await
     }
 

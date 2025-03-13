@@ -1,15 +1,12 @@
 #![no_std]
 #![no_main]
-#![feature(impl_trait_in_assoc_type, generic_const_exprs)]
-#![expect(
-    incomplete_features,
-    reason = "`generic_const_exprs` necessary to construct Dynamixel packets on the stack"
-)]
+#![feature(impl_trait_in_assoc_type)]
 
 use {
     core::mem::MaybeUninit,
     cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
     defmt_rtt as _,
+    dxl_rp::Actuator,
     embassy_executor::Spawner,
     embassy_rp::{
         bind_interrupts,
@@ -19,17 +16,9 @@ use {
         uart, usb,
     },
     embassy_time::{Duration, Instant, Timer},
-    dxl_rp::Actuator,
     panic_probe as _,
     static_cell::StaticCell,
 };
-
-/*
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
-*/
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
@@ -43,56 +32,6 @@ const BAUD: u32 = 57600;
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
-
-    /*
-    {
-        // USB logging task:
-        #[embassy_executor::task]
-        pub async fn task(usb_driver: usb::Driver<'static, USB>) {
-            embassy_usb_logger::run!(1024, log::LevelFilter::Debug, usb_driver);
-        }
-        let () = match spawner.spawn(task(usb::Driver::new(p.USB, Irqs))) {
-            Ok(()) => {}
-            Err(e) => log::error!("{e}"),
-        };
-    }
-    */
-
-    /*
-    {
-        #[embassy_executor::task]
-        async fn task() {
-            loop {
-                let bs = ();
-                let () = defmt::debug!("Stack: {:X}", &bs as *const _ as *const ());
-                let () = yield_now().await;
-            }
-        }
-        let () = match spawner.spawn(task()) {
-            Ok(()) => {}
-            Err(e) => defmt::error!("{}", e),
-        };
-    }
-    */
-
-    /*
-    #[cfg(debug_assertions)]
-    {
-        #[embassy_executor::task]
-        async fn task() {
-            let mut next = Instant::now();
-            loop {
-                defmt::debug!("heartbeat");
-                next += Duration::from_secs(1);
-                Timer::at(next).await;
-            }
-        }
-        let () = match spawner.spawn(task()) {
-            Ok(()) => {}
-            Err(e) => defmt::error!("{}", e),
-        };
-    }
-    */
 
     let mut control = {
         // CYW43 wireless board
@@ -143,10 +82,12 @@ async fn main(spawner: Spawner) {
     let dxl_bus = dxl_rp::bus(
         BAUD, p.PIN_13, p.UART0, p.PIN_16, p.PIN_17, Irqs, p.DMA_CH1, p.DMA_CH2,
     );
-    let actuator = {
+    let mut actuator = {
         let mut maybe_uninit = MaybeUninit::uninit();
         'actuator: loop {
-            match Actuator::<DXL_ID, _>::init_at_position(&dxl_bus, "Test Dynamixel", 0.5, 0.001).await {
+            match Actuator::<DXL_ID, _>::init_at_position(&dxl_bus, "Test Dynamixel", 0.5, 0.001)
+                .await
+            {
                 Ok(ok) => {
                     maybe_uninit.write(ok);
                     break 'actuator;
@@ -172,10 +113,7 @@ async fn main(spawner: Spawner) {
         // let () = control.gpio_set(0, state).await;
         // defmt::info!("{}", state);
 
-        let () = match actuator
-            .write_goal_position(if state { 4095 } else { 0 })
-            .await
-        {
+        let () = match actuator.go_to(if state { 1. } else { 0. }).await {
             Ok(()) => {}
             Err(e) => defmt::error!("Error writing Dynamixel goal position: {}", e),
         };
