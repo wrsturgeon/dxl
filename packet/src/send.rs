@@ -16,6 +16,7 @@ impl Ping {
 }
 impl Instruction for Ping {
     const BYTE: u8 = 0x01;
+    const GERUND: &str = "Pinging";
     type Recv = recv::Ping;
 }
 
@@ -27,6 +28,7 @@ where
     [(); Address::BYTES as usize]:,
 {
     address: C16<{ Address::ADDRESS as u16 }>,
+    length: C16<{ Address::BYTES }>,
 }
 impl<Address: control_table::Item> Read<Address>
 where
@@ -37,6 +39,7 @@ where
     pub const fn new() -> Self {
         Self {
             address: C16::new(),
+            length: C16::new(),
         }
     }
 }
@@ -46,6 +49,7 @@ where
     [(); Address::BYTES as usize]:,
 {
     const BYTE: u8 = 0x02;
+    const GERUND: &str = "Reading";
     type Recv = recv::Read<Address>;
 }
 
@@ -77,6 +81,7 @@ where
     [(); Address::BYTES as usize]:,
 {
     const BYTE: u8 = 0x03;
+    const GERUND: &str = "Writing";
     type Recv = ();
 }
 impl<Address: control_table::Item> defmt::Format for Write<Address>
@@ -123,6 +128,7 @@ where
     [(); Address::BYTES as usize]:,
 {
     const BYTE: u8 = 0x04;
+    const GERUND: &str = "Register-writing";
     type Recv = ();
 }
 impl<Address: control_table::Item> defmt::Format for RegWrite<Address>
@@ -156,6 +162,7 @@ impl Action {
 }
 impl Instruction for Action {
     const BYTE: u8 = 0x05;
+    const GERUND: &str = "Sending action";
     type Recv = ();
 }
 
@@ -170,6 +177,7 @@ impl FactoryReset {
 }
 impl Instruction for FactoryReset {
     const BYTE: u8 = 0x06;
+    const GERUND: &str = "Factory-resetting";
     type Recv = ();
 }
 
@@ -184,5 +192,6 @@ impl Reboot {
 }
 impl Instruction for Reboot {
     const BYTE: u8 = 0x08;
+    const GERUND: &str = "Rebooting";
     type Recv = ();
 }

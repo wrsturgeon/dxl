@@ -97,10 +97,12 @@ impl<'lock, 'uart, HardwareUart: uart::Instance> Drop for RxStream<'lock, 'uart,
                 }
                 task::Poll::Pending => {
                     #[cfg(debug_assertions)]
-                    if start.elapsed() < DEBUG_POST_PACKET_WAIT {
-                        continue;
-                    } // else implicitly continue
-                    debug_assert!(!extraneous, "Extraneous bytes");
+                    {
+                        if start.elapsed() < DEBUG_POST_PACKET_WAIT {
+                            continue;
+                        }
+                        assert!(!extraneous, "Extraneous bytes");
+                    }
                     return;
                 }
             }

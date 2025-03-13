@@ -7,6 +7,17 @@ pub enum Error<C: Comm, Output> {
     Parse(::dxl_packet::packet::recv::PersistentError<Output>),
 }
 
+impl<C: Comm, X> Error<C, X> {
+    #[inline]
+    pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> Error<C, Y> {
+        match self {
+            Self::Send(e) => Error::Send(e),
+            Self::Recv(e) => Error::Recv(e),
+            Self::Parse(e) => Error::Parse(e.map(f)),
+        }
+    }
+}
+
 /*
 impl<C: Comm, Output> defmt::Format for Error<C, Output> {
     #[inline]
@@ -60,7 +71,7 @@ macro_rules! instruction_method {
         > {
             self.comm::<ID, paste! { ::dxl_packet::send:: [< $id:camel >] }>({
                 let payload = paste! { ::dxl_packet::send:: [< $id:camel >] ::new() };
-                defmt::debug!("Sending {:X} to DXL {}", payload, ID);
+                // defmt::debug!("Sending {:X} to DXL {}", payload, ID);
                 payload
             })
             .await
@@ -77,7 +88,7 @@ macro_rules! control_table_methods {
             ) -> Result<::dxl_packet::recv::Read<::dxl_packet::control_table::$id>, Error<C, ::dxl_packet::recv::Read<::dxl_packet::control_table::$id>>> {
                 self.comm::<ID, ::dxl_packet::send::Read<::dxl_packet::control_table::$id>>({
                     let payload = ::dxl_packet::send::Read::<::dxl_packet::control_table::$id>::new();
-                    defmt::debug!("Read {:X} from DXL {}", payload, ID);
+                    // defmt::debug!("Reading {:X} (\"{}\") from DXL {}", payload, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, ID);
                     payload
                 })
                 .await
@@ -90,7 +101,7 @@ macro_rules! control_table_methods {
             ) -> Result<::dxl_packet::recv::Write, Error<C, ::dxl_packet::recv::Write>> {
                 self.comm::<ID, ::dxl_packet::send::Write<::dxl_packet::control_table::$id>>({
                     let payload = ::dxl_packet::send::Write::<::dxl_packet::control_table::$id>::new(bytes);
-                    defmt::debug!("Writing {:X} to DXL {}", payload, ID);
+                    // defmt::debug!("Writing {:X} to DXL {}", payload, ID);
                     payload
                 })
                 .await
@@ -103,7 +114,7 @@ macro_rules! control_table_methods {
             ) -> Result<::dxl_packet::recv::RegWrite, Error<C, ::dxl_packet::recv::RegWrite>> {
                 self.comm::<ID, ::dxl_packet::send::RegWrite<::dxl_packet::control_table::$id>>({
                     let payload = ::dxl_packet::send::RegWrite::<::dxl_packet::control_table::$id>::new(bytes);
-                    defmt::debug!("Register-writing {:X} to DXL {}", payload, ID);
+                    // defmt::debug!("Register-writing {:X} to DXL {}", payload, ID);
                     payload
                 })
                 .await
@@ -117,6 +128,7 @@ impl<C: Comm> Bus<C> {
     pub const fn new(comm: C) -> Self {
         Self {
             comm,
+            #[cfg(debug_assertions)]
             used_ids: [false; 252],
         }
     }
@@ -158,7 +170,7 @@ impl<C: Comm> Bus<C> {
             // defmt::debug!("Read `x{=u8:X}` over serial", byte);
             state = match ::dxl_packet::parse::State::push(state, byte).map_err(Error::Parse)? {
                 ::dxl_packet::parse::Status::Complete(complete) => {
-                    defmt::debug!("Successfully decoded a packet: {:X}", complete);
+                    // defmt::debug!("Successfully decoded a packet: {:X}", complete);
                     return Ok(complete);
                 }
                 ::dxl_packet::parse::Status::Incomplete((updated, ())) => {

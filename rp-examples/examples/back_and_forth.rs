@@ -19,6 +19,7 @@ use {
         uart, usb,
     },
     embassy_time::{Duration, Instant, Timer},
+    dxl_rp::Actuator,
     panic_probe as _,
     static_cell::StaticCell,
 };
@@ -74,6 +75,25 @@ async fn main(spawner: Spawner) {
     }
     */
 
+    /*
+    #[cfg(debug_assertions)]
+    {
+        #[embassy_executor::task]
+        async fn task() {
+            let mut next = Instant::now();
+            loop {
+                defmt::debug!("heartbeat");
+                next += Duration::from_secs(1);
+                Timer::at(next).await;
+            }
+        }
+        let () = match spawner.spawn(task()) {
+            Ok(()) => {}
+            Err(e) => defmt::error!("{}", e),
+        };
+    }
+    */
+
     let mut control = {
         // CYW43 wireless board
         static STATE: StaticCell<cyw43::State> = StaticCell::new();
@@ -94,8 +114,8 @@ async fn main(spawner: Spawner) {
                     p.DMA_CH0,
                 )
             },
-            include_bytes!("../../cyw43-firmware/43439A0.bin"),
-            include_bytes!("../../cyw43-firmware/43439A0_btfw.bin"),
+            include_bytes!("../cyw43-firmware/43439A0.bin"),
+            include_bytes!("../cyw43-firmware/43439A0_btfw.bin"),
         )
         .await;
 
@@ -114,7 +134,7 @@ async fn main(spawner: Spawner) {
         }
 
         let () = control
-            .init(include_bytes!("../../cyw43-firmware/43439A0_clm.bin"))
+            .init(include_bytes!("../cyw43-firmware/43439A0_clm.bin"))
             .await;
 
         control
@@ -126,7 +146,7 @@ async fn main(spawner: Spawner) {
     let actuator = {
         let mut maybe_uninit = MaybeUninit::uninit();
         'actuator: loop {
-            match dxl_bus.id::<DXL_ID>().await {
+            match Actuator::<DXL_ID, _>::init_at_position(&dxl_bus, "Test Dynamixel", 0.5, 0.001).await {
                 Ok(ok) => {
                     maybe_uninit.write(ok);
                     break 'actuator;
@@ -137,10 +157,14 @@ async fn main(spawner: Spawner) {
                     e
                 ),
             }
-            // let () = Timer::after(Duration::from_secs(1)).await;
+            let () = Timer::after(Duration::from_secs(1)).await;
         }
         unsafe { maybe_uninit.assume_init() }
     };
+    match actuator.write_profile_acceleration(32).await {
+        Ok(()) => {}
+        Err(e) => defmt::error!("{}", e),
+    }
 
     let mut next = Instant::now();
     let mut state = true;

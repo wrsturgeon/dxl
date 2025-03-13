@@ -148,16 +148,19 @@ impl<const N: usize> State<u8> for ByteArray<N> {
         mut self,
         input: u8,
     ) -> Result<Status<Self::Output, (Self, Self::SideEffect)>, Self::Error> {
-        let Some(uninit) = self.buffer.get_mut(self.index) else {
-            return Ok(Status::Complete({
+        if let Some(uninit) = self.buffer.get_mut(self.index) {
+            uninit.write(input);
+        }
+        self.index += 1;
+        Ok(if self.index < N {
+            Status::Incomplete((self, ()))
+        } else {
+            Status::Complete({
                 let ptr: *const _ = &self.buffer;
                 let cast: *const Self::Output = ptr.cast();
                 unsafe { cast.read() }
-            }));
-        };
-        uninit.write(input);
-        self.index += 1;
-        Ok(Status::Incomplete((self, ())))
+            })
+        })
     }
 }
 

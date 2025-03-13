@@ -16,6 +16,16 @@ pub enum Error<C: comm::Comm, M: mutex::Mutex, Output> {
     Bus(bus::Error<C, Output>),
 }
 
+impl<C: comm::Comm, M: mutex::Mutex, X> Error<C, M, X> {
+    #[inline]
+    pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> Error<C, M, Y> {
+        match self {
+            Self::Mutex(e) => Error::Mutex(e),
+            Self::Bus(e) => Error::Bus(e.map(f)),
+        }
+    }
+}
+
 /*
 impl<C: comm::Comm, M: mutex::Mutex, Output> defmt::Format for Error<C, M, Output> {
     #[inline]

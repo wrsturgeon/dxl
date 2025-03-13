@@ -2,12 +2,12 @@
 linker = "flip-link"
 # runner = "picotool load -u -v -x -t elf"
 runner = [
-    "probe-rs",
-    "run",
-    "--chip",
-    "RP235x",
-    "--log-format",
-    "[{L} at {t}s] {s}   {from {F}:{l}%dimmed%italic}"
+  "probe-rs",
+  "run",
+  "--chip",
+  "RP235x",
+  "--log-format",
+  "[{L} at {t}s] {s:severity:bold}   {from {F}:{l}%dimmed%italic}",
 ]
 
 [build]
@@ -16,3 +16,7 @@ target = "thumbv8m.main-none-eabihf"
 [env]
 DEFMT_LOG = "debug"
 RUST_BACKTRACE = "1"
+
+[unstable]
+build-std = ["core"]
+# build-std-features = ["panic_immediate_abort"]

@@ -568,6 +568,16 @@ pub enum PersistentError<Output> {
     Hardware(Output),
 }
 
+impl<X> PersistentError<X> {
+    #[inline]
+    pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> PersistentError<Y> {
+        match self {
+            Self::Software(e) => PersistentError::Software(e),
+            Self::Hardware(e) => PersistentError::Hardware(f(e)),
+        }
+    }
+}
+
 impl<Output> defmt::Format for PersistentError<Output> {
     #[inline]
     fn format(&self, f: defmt::Formatter) {

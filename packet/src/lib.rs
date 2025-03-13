@@ -16,6 +16,7 @@ pub mod stream;
 
 pub trait Instruction: Sized + defmt::Format {
     const BYTE: u8;
+    const GERUND: &'static str;
 
     type Recv: recv::Receive;
     // type ParseState: parse::State<u8, Output = Self::Recv>;

@@ -57,18 +57,6 @@ pub enum Error {
     WriteTimeout(TimeoutError),
 }
 
-/*
-impl defmt::Format for Error {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Write(ref e) => write!(f, "Serial error: {e:?}"),
-            Self::WriteTimeout(ref e) => write!(f, "Timeout writing over serial: {e:?}"),
-        }
-    }
-}
-*/
-
 pub struct Comm<'tx_en, 'uart, HardwareUart: uart::Instance> {
     tx_enable: gpio::Output<'tx_en>,
     uart: Uart<'uart, HardwareUart, uart::Async>,
@@ -129,7 +117,7 @@ impl<'tx_en, 'uart, HardwareUart: uart::Instance> dxl_driver::comm::Comm
             }
             // Then wait until it finishes:
             while self.uart.busy() {
-                let () = yield_now().await;
+                // let () = yield_now().await;
             }
             Ok(())
         })
@@ -157,18 +145,6 @@ impl<Item> dxl_driver::mutex::Mutex for Mutex<Item> {
     #[inline(always)]
     async fn lock(&self) -> Result<impl DerefMut<Target = Self::Item>, Self::Error> {
         with_timeout(TIMEOUT_LOCK, self.0.lock()).await
-    }
-}
-
-impl<'tx_en, 'uart, HardwareUart: uart::Instance> Mutex<Bus<Comm<'tx_en, 'uart, HardwareUart>>> {
-    #[inline(always)]
-    pub async fn id<const ID: u8>(
-        &self,
-    ) -> Result<
-        Actuator<'tx_en, 'uart, '_, ID, HardwareUart>,
-        dxl_driver::actuator::InitError<Comm<'tx_en, 'uart, HardwareUart>, Self>,
-    > {
-        Actuator::new(self).await
     }
 }
 
