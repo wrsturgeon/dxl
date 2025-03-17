@@ -498,31 +498,19 @@ impl<Insn: Instruction, const ID: u8> parse::State<u8> for WithCrc<Insn, ID> {
         Ok(parse::Status::Incomplete((
             match self {
                 Self::BeforeCrc { state } => match state.push(input).map_err(Error::Parsing)? {
-                    parse::Status::Complete(payload) => {
-                        /*
-                        defmt::debug!(
-                            "Finished parsing packet body into {}; waiting for CRC...",
-                            payload
-                        );
-                        */
-                        Self::FirstCrcByte { payload }
-                    }
+                    parse::Status::Complete(payload) => Self::FirstCrcByte { payload },
                     parse::Status::Incomplete((new_state, _)) => {
                         Self::BeforeCrc { state: new_state }
                     }
                 },
-                Self::FirstCrcByte { payload } => {
-                    // defmt::debug!("First CRC byte: `x{:X}`", input);
-                    Self::SecondCrcByte {
-                        first_crc_byte: input,
-                        payload,
-                    }
-                }
+                Self::FirstCrcByte { payload } => Self::SecondCrcByte {
+                    first_crc_byte: input,
+                    payload,
+                },
                 Self::SecondCrcByte {
                     first_crc_byte,
                     payload,
                 } => {
-                    // defmt::debug!("Second CRC byte: `x{:X}`", input);
                     let WithHardwareErrorStatus {
                         output,
                         expected_crc,
@@ -530,7 +518,6 @@ impl<Insn: Instruction, const ID: u8> parse::State<u8> for WithCrc<Insn, ID> {
                     } = payload;
                     {
                         let actual_crc = u16::from_le_bytes([first_crc_byte, input]);
-                        // defmt::debug!("Full CRC: `x{:X}`", actual_crc);
                         if actual_crc != expected_crc {
                             return Err(Error::Crc(Mismatch16 {
                                 expected: expected_crc,

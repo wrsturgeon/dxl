@@ -6,7 +6,9 @@ use {
     core::mem::MaybeUninit,
     cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
     defmt_rtt as _,
-    dxl_rp::{Actuator, Mutex},
+    dxl_driver::mutex::Mutex as _,
+    dxl_packet::control_table::Baud,
+    dxl_rp::Actuator,
     embassy_executor::Spawner,
     embassy_rp::{
         bind_interrupts,
@@ -15,7 +17,7 @@ use {
         pio::{self, Pio},
         uart, usb,
     },
-    embassy_time::{Duration, Instant, Timer},
+    embassy_time::{Duration, Timer},
     panic_probe as _,
     static_cell::StaticCell,
 };
@@ -27,25 +29,10 @@ bind_interrupts!(struct Irqs {
 });
 
 const DXL_ID: u8 = 1;
-const BAUD: u32 = 1_000_000;
-
-#[repr(C, packed)]
-struct SmolBuffer {
-    bytes: [u8; 255],
-    size: u8,
-}
-
-impl SmolBuffer {
-    #[inline]
-    fn read(&self) -> &[u8] {
-        &self.bytes[..self.size as usize]
-    }
-}
+const CURRENT_BAUD: u32 = 1_000_000;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    static MOST_RECENT_PACKET: StaticCell<Mutex<SmolBuffer>> = StaticCell::new();
-
     let p = embassy_rp::init(Default::default());
 
     let mut control = {
@@ -94,56 +81,91 @@ async fn main(spawner: Spawner) {
         control
     };
 
-    let most_recent_packet = MOST_RECENT_PACKET.init(Mutex::new());
-    {
-        // UDP reception task:
-        #[embassy_executor::task]
-        async fn task(buffer: Mutex<SmolBuffer>) -> ! {
-            asdf
-        }
-    }
-
     let dxl_bus = dxl_rp::bus(
-        BAUD, p.PIN_13, p.UART0, p.PIN_16, p.PIN_17, Irqs, p.DMA_CH1, p.DMA_CH2,
+        CURRENT_BAUD,
+        p.PIN_13,
+        p.UART0,
+        p.PIN_16,
+        p.PIN_17,
+        Irqs,
+        p.DMA_CH1,
+        p.DMA_CH2,
     );
+
+    let mut bus = match dxl_bus.lock().await {
+        Ok(ok) => ok,
+        Err(e) => {
+            defmt::error!("{}", e);
+            loop {}
+        }
+    };
+    defmt::info!("  0: {}", bus.ping::<0>().await);
+    defmt::info!("  1: {}", bus.ping::<1>().await);
+    defmt::info!("  2: {}", bus.ping::<2>().await);
+    defmt::info!("  3: {}", bus.ping::<3>().await);
+    defmt::info!("  4: {}", bus.ping::<4>().await);
+    defmt::info!("  5: {}", bus.ping::<5>().await);
+    defmt::info!("  6: {}", bus.ping::<6>().await);
+    defmt::info!("  7: {}", bus.ping::<7>().await);
+    defmt::info!("  8: {}", bus.ping::<8>().await);
+    defmt::info!("  9: {}", bus.ping::<9>().await);
+    defmt::info!(" 10: {}", bus.ping::<10>().await);
+    defmt::info!(" 11: {}", bus.ping::<11>().await);
+    defmt::info!(" 12: {}", bus.ping::<12>().await);
+    defmt::info!(" 13: {}", bus.ping::<13>().await);
+    defmt::info!(" 14: {}", bus.ping::<14>().await);
+    defmt::info!(" 15: {}", bus.ping::<15>().await);
+    defmt::info!(" 16: {}", bus.ping::<16>().await);
+    defmt::info!(" 17: {}", bus.ping::<17>().await);
+    defmt::info!(" 18: {}", bus.ping::<18>().await);
+    defmt::info!(" 19: {}", bus.ping::<19>().await);
+    defmt::info!(" 20: {}", bus.ping::<20>().await);
+    defmt::info!(" 21: {}", bus.ping::<21>().await);
+    defmt::info!(" 22: {}", bus.ping::<22>().await);
+    defmt::info!(" 23: {}", bus.ping::<23>().await);
+    defmt::info!(" 24: {}", bus.ping::<24>().await);
+    defmt::info!(" 25: {}", bus.ping::<25>().await);
+    defmt::info!(" 26: {}", bus.ping::<26>().await);
+    defmt::info!(" 27: {}", bus.ping::<27>().await);
+    defmt::info!(" 28: {}", bus.ping::<28>().await);
+    defmt::info!(" 29: {}", bus.ping::<29>().await);
+
+    /*
     let mut actuator = {
         let mut maybe_uninit = MaybeUninit::uninit();
         'actuator: loop {
-            match Actuator::<DXL_ID, _>::init_at_position(&dxl_bus, "Test Dynamixel", 0.5, 0.001)
+            match Actuator::<DXL_ID, _>::init_unconfigured(&dxl_bus, "Low-Baud Boring Loser")
                 .await
             {
                 Ok(ok) => {
                     maybe_uninit.write(ok);
                     break 'actuator;
                 }
-                Err(e) => defmt::warn!(
+                Err(e) => defmt::error!(
                     "Error initializing Dynamixel ID {}: {}; retrying...",
                     DXL_ID,
-                    e
+                    e,
                 ),
             }
             let () = Timer::after(Duration::from_secs(1)).await;
         }
         unsafe { maybe_uninit.assume_init() }
     };
-    match actuator.write_profile_acceleration(32).await {
-        Ok(()) => {}
-        Err(e) => defmt::error!("{}", e),
+
+    'torque: loop {
+        match actuator.torque_off().await {
+            Ok(()) => break 'torque,
+            Err(e) => defmt::error!("Error disabling torque for Dynamixel ID {}: {}; retrying...", DXL_ID, e,),
+        }
     }
 
-    let mut next = Instant::now();
-    let mut state = true;
-    loop {
-        // let () = control.gpio_set(0, state).await;
-        // defmt::info!("{}", state);
-
-        let () = match actuator.go_to(if state { 1. } else { 0. }).await {
-            Ok(()) => {}
-            Err(e) => defmt::error!("Error writing Dynamixel goal position: {}", e),
-        };
-
-        state = !state;
-        next += Duration::from_millis(1500);
-        let () = Timer::at(next).await;
+    'baud: loop {
+        match actuator.write_baud_rate(INTENDED_BAUD as u8).await {
+            Ok(()) => break 'baud,
+            Err(e) => defmt::error!("Error updating baud rate of Dynamixel ID {}: {}; retrying...", DXL_ID, e,),
+        }
     }
+    */
+
+    defmt::info!("done; halting.");
 }

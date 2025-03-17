@@ -69,11 +69,9 @@ macro_rules! instruction_method {
                 <paste! { ::dxl_packet::send::[< $id:camel >] } as ::dxl_packet::Instruction>::Recv,
             >,
         > {
-            self.comm::<ID, paste! { ::dxl_packet::send:: [< $id:camel >] }>({
-                let payload = paste! { ::dxl_packet::send:: [< $id:camel >] ::new() };
-                // defmt::debug!("Sending {:X} to DXL {}", payload, ID);
-                payload
-            })
+            self.comm::<ID, paste! { ::dxl_packet::send:: [< $id:camel >] }>(
+                paste! { ::dxl_packet::send:: [< $id:camel >] ::new() },
+            )
             .await
         }
     };
@@ -86,11 +84,9 @@ macro_rules! control_table_methods {
             pub async fn [< read_ $id:snake >]<const ID: u8>(
                 &mut self,
             ) -> Result<::dxl_packet::recv::Read<::dxl_packet::control_table::$id>, Error<C, ::dxl_packet::recv::Read<::dxl_packet::control_table::$id>>> {
-                self.comm::<ID, ::dxl_packet::send::Read<::dxl_packet::control_table::$id>>({
-                    let payload = ::dxl_packet::send::Read::<::dxl_packet::control_table::$id>::new();
-                    // defmt::debug!("Reading {:X} (\"{}\") from DXL {}", payload, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, ID);
-                    payload
-                })
+                self.comm::<ID, ::dxl_packet::send::Read<::dxl_packet::control_table::$id>>(
+                    ::dxl_packet::send::Read::<::dxl_packet::control_table::$id>::new()
+                )
                 .await
             }
 
@@ -99,11 +95,9 @@ macro_rules! control_table_methods {
                 &mut self,
                 bytes: [u8; <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize]
             ) -> Result<::dxl_packet::recv::Write, Error<C, ::dxl_packet::recv::Write>> {
-                self.comm::<ID, ::dxl_packet::send::Write<::dxl_packet::control_table::$id>>({
-                    let payload = ::dxl_packet::send::Write::<::dxl_packet::control_table::$id>::new(bytes);
-                    // defmt::debug!("Writing {:X} to DXL {}", payload, ID);
-                    payload
-                })
+                self.comm::<ID, ::dxl_packet::send::Write<::dxl_packet::control_table::$id>>(
+                    ::dxl_packet::send::Write::<::dxl_packet::control_table::$id>::new(bytes)
+                )
                 .await
             }
 
@@ -112,11 +106,9 @@ macro_rules! control_table_methods {
                 &mut self,
                 bytes: [u8; <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize]
             ) -> Result<::dxl_packet::recv::RegWrite, Error<C, ::dxl_packet::recv::RegWrite>> {
-                self.comm::<ID, ::dxl_packet::send::RegWrite<::dxl_packet::control_table::$id>>({
-                    let payload = ::dxl_packet::send::RegWrite::<::dxl_packet::control_table::$id>::new(bytes);
-                    // defmt::debug!("Register-writing {:X} to DXL {}", payload, ID);
-                    payload
-                })
+                self.comm::<ID, ::dxl_packet::send::RegWrite<::dxl_packet::control_table::$id>>(
+                    ::dxl_packet::send::RegWrite::<::dxl_packet::control_table::$id>::new(bytes)
+                )
                 .await
             }
         }
@@ -167,16 +159,9 @@ impl<C: Comm> Bus<C> {
             let byte: u8 = ::dxl_packet::stream::Stream::next(&mut stream)
                 .await
                 .map_err(Error::Recv)?;
-            // defmt::debug!("Read `x{=u8:X}` over serial", byte);
             state = match ::dxl_packet::parse::State::push(state, byte).map_err(Error::Parse)? {
-                ::dxl_packet::parse::Status::Complete(complete) => {
-                    // defmt::debug!("Successfully decoded a packet: {:X}", complete);
-                    return Ok(complete);
-                }
-                ::dxl_packet::parse::Status::Incomplete((updated, ())) => {
-                    // defmt::debug!("Updating parser: {}", updated);
-                    updated
-                }
+                ::dxl_packet::parse::Status::Complete(complete) => return Ok(complete),
+                ::dxl_packet::parse::Status::Incomplete((updated, ())) => updated,
             };
         }
     }

@@ -16,7 +16,10 @@ macro_rules! instruction_method {
                 paste! { <::dxl_packet::send::[< $id:camel >] as ::dxl_packet::Instruction>::Recv },
             >,
         > {
-            paste! { defmt::debug!("{} {}...", <::dxl_packet::send::[< $id:camel >] as ::dxl_packet::Instruction>::GERUND, self) };
+            #[cfg(debug_assertions)]
+            {
+                paste! { defmt::debug!("{} {}...", <::dxl_packet::send::[< $id:camel >] as ::dxl_packet::Instruction>::GERUND, self) };
+            }
             self.bus
                 .lock()
                 .await
@@ -35,7 +38,10 @@ macro_rules! control_table_methods {
             pub async fn [< read_ $id:snake >](
                 &self,
             ) -> Result<[< u $bits >], crate::Error<C, M, [< u $bits >]>> {
-                defmt::debug!("Reading {}'s {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION);
+                #[cfg(debug_assertions)]
+                {
+                    defmt::debug!("Reading {}'s {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION);
+                }
                 let ::dxl_packet::recv::Read { bytes } = self.bus
                     .lock()
                     .await
@@ -44,7 +50,10 @@ macro_rules! control_table_methods {
                     .await
                     .map_err(|e| crate::Error::Bus(e.map(|::dxl_packet::recv::Read { bytes }| [< u $bits >]::from_le_bytes(bytes))))?;
                 let uint = [< u $bits >]::from_le_bytes(bytes);
-                defmt::debug!("    --> {}'s {} is {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, uint);
+                #[cfg(debug_assertions)]
+                {
+                    defmt::debug!("    --> {}'s {} is {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, uint);
+                }
                 Ok(uint)
             }
 
@@ -52,9 +61,15 @@ macro_rules! control_table_methods {
             pub async fn [< write_ $id:snake >](
                 &self, value: [< u $bits >],
             ) -> Result<(), crate::Error<C, M, ()>> {
-                defmt::debug!("Writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                #[cfg(debug_assertions)]
+                {
+                    defmt::debug!("Writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                }
                 let () = self.bus.lock().await.map_err(crate::Error::Mutex)?.[< write_ $id:snake >]::<ID>(value.to_le_bytes()).await.map_err(crate::Error::Bus)?;
-                defmt::debug!("    --> updated {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                #[cfg(debug_assertions)]
+                {
+                    defmt::debug!("    --> updated {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                }
                 Ok(())
             }
 
@@ -62,9 +77,15 @@ macro_rules! control_table_methods {
             pub async fn [< reg_write_ $id:snake >](
                 &self, value: [< u $bits >],
             ) -> Result<(), crate::Error<C, M, ()>> {
-                defmt::debug!("Register-writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                #[cfg(debug_assertions)]
+                {
+                    defmt::debug!("Register-writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                }
                 let () = self.bus.lock().await.map_err(crate::Error::Mutex)?.[< reg_write_ $id:snake >]::<ID>(value.to_le_bytes()).await.map_err(crate::Error::Bus)?;
-                defmt::debug!("    --> registered an update of {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                #[cfg(debug_assertions)]
+                {
+                    defmt::debug!("    --> registered an update of {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                }
                 Ok(())
             }
         }
@@ -208,7 +229,7 @@ pub struct Actuator<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> {
 
 impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C, M> {
     #[inline(always)]
-    async fn init_unconfigured(
+    pub async fn init_unconfigured(
         bus: &'bus M,
         description: &'static str,
     ) -> Result<Self, InitError<C, M>> {

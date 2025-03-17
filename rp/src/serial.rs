@@ -1,9 +1,7 @@
 use {
     embassy_rp::uart::{self, Uart},
-    embassy_time::{with_timeout, Duration, TimeoutError},
+    embassy_time::{with_timeout, TimeoutError},
 };
-
-const DEBUG_POST_PACKET_WAIT: Duration = Duration::from_millis(10);
 
 #[derive(defmt::Format)]
 pub enum RecvError {
@@ -71,15 +69,11 @@ impl<'lock, 'uart, HardwareUart: uart::Instance> crate::Stream
     }
 }
 
+/*
 impl<'lock, 'uart, HardwareUart: uart::Instance> Drop for RxStream<'lock, 'uart, HardwareUart> {
     #[inline]
     fn drop(&mut self) {
         use core::{pin::pin, task};
-
-        #[cfg(debug_assertions)]
-        let start = embassy_time::Instant::now();
-        #[cfg(debug_assertions)]
-        let mut extraneous = false;
 
         loop {
             match pin!(self.next_without_timeout())
@@ -87,25 +81,14 @@ impl<'lock, 'uart, HardwareUart: uart::Instance> Drop for RxStream<'lock, 'uart,
             {
                 task::Poll::Ready(Ok(byte)) => {
                     defmt::error!("Extraneous byte: `x{=u8:X}`", byte);
-                    #[cfg(debug_assertions)]
-                    {
-                        extraneous = true;
-                    }
                 }
                 task::Poll::Ready(Err(e)) => {
                     defmt::error!("Error while clearing an RX stream: {}", e)
                 }
-                task::Poll::Pending => {
-                    #[cfg(debug_assertions)]
-                    {
-                        if start.elapsed() < DEBUG_POST_PACKET_WAIT {
-                            continue;
-                        }
-                        assert!(!extraneous, "Extraneous bytes");
-                    }
-                    return;
-                }
+                task::Poll::Pending =>
+                    return,
             }
         }
     }
 }
+*/

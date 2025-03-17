@@ -3,10 +3,10 @@
 #![feature(impl_trait_in_assoc_type)]
 
 use {
-    core::mem::MaybeUninit,
     cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
     defmt_rtt as _,
-    dxl_rp::Actuator,
+    dxl_driver::bus::Bus,
+    dxl_rp::{Actuator, Comm, Mutex},
     embassy_executor::Spawner,
     embassy_net::udp::{self, UdpSocket},
     embassy_rp::{
@@ -32,45 +32,29 @@ const BAUD: u32 = 1_000_000;
 
 const CYW43_POWER_MANAGEMENT: cyw43::PowerManagementMode = cyw43::PowerManagementMode::None; // cyw43::PowerManagementMode::PowerSave;
 
-/*
-struct SmolBuffer {
-    bytes: [u8; 255],
-    size: u8,
-    updated: bool,
-}
-
-impl SmolBuffer {
-    #[inline]
-    pub const fn new() -> Self {
-        Self {
-            bytes: [0; 255],
-            size: 0,
-            updated: false,
-        }
-    }
-
-    #[inline]
-    pub fn read(&mut self) -> Option<&[u8]> {
-        if self.updated {
-            self.updated = false;
-            Some(&self.bytes[..self.size as usize])
-        } else { None }
-    }
-
-    #[inline]
-    pub fn set(&mut self, buffer: &[u8]) {
-        self.size = buffer.len().try_into().unwrap_or(255);
-        let () = (&mut self.bytes[..self.size as usize]).copy_from_slice(buffer);
-        self.updated = true;
-    }
-}
-*/
-
 const UDP_BUFFER_SIZE: usize = 256;
 const UDP_RX_BUFFER_SIZE: usize = 256;
 const UDP_TX_BUFFER_SIZE: usize = 256;
 const UDP_RX_META_SIZE: usize = 256;
 const UDP_TX_META_SIZE: usize = 256;
+
+async fn persistent_actuator_init<'tx_en, 'uart, 'bus, const ID: u8>(
+    description: &'static str,
+    dxl_bus: &'bus Mutex<Bus<Comm<'tx_en, 'uart, UART0>>>,
+) -> Actuator<'tx_en, 'uart, 'bus, ID, UART0> {
+    loop {
+        match Actuator::<ID, _>::init_at_position(dxl_bus, description, 0.5, 0.001).await {
+            Ok(ok) => return ok,
+            Err(e) => defmt::error!(
+                "Error initializing Dynamixel ID {} (\"{}\"): {}; retrying...",
+                ID,
+                description,
+                e
+            ),
+        }
+        let () = Timer::after(Duration::from_secs(1)).await;
+    }
+}
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -189,26 +173,11 @@ async fn main(spawner: Spawner) {
     let dxl_bus = dxl_rp::bus(
         BAUD, p.PIN_13, p.UART0, p.PIN_16, p.PIN_17, Irqs, p.DMA_CH1, p.DMA_CH2,
     );
-    let mut actuator = {
-        let mut maybe_uninit = MaybeUninit::uninit();
-        'actuator: loop {
-            match Actuator::<DXL_ID, _>::init_at_position(&dxl_bus, "Test Dynamixel", 0.5, 0.001)
-                .await
-            {
-                Ok(ok) => {
-                    maybe_uninit.write(ok);
-                    break 'actuator;
-                }
-                Err(e) => defmt::error!(
-                    "Error initializing Dynamixel ID {}: {}; retrying...",
-                    DXL_ID,
-                    e
-                ),
-            }
-            let () = Timer::after(Duration::from_secs(1)).await;
-        }
-        unsafe { maybe_uninit.assume_init() }
-    };
+
+    // TODO: join these!
+    let mut mouth_1 = persistent_actuator_init::<1>("Mouth #1", &dxl_bus).await;
+    let mut mouth_2 = persistent_actuator_init::<2>("Mouth #2", &dxl_bus).await;
+    let mut mouth_3 = persistent_actuator_init::<3>("Mouth #3", &dxl_bus).await;
 
     let mut udp_buffer = [0; UDP_BUFFER_SIZE];
     'main_loop: loop {
@@ -294,7 +263,17 @@ async fn main(spawner: Spawner) {
             }
         }
 
-        match actuator.go_to(pos as f32 / 65535.).await {
+        let f_pos = pos as f32 / 65535_f32;
+        let result = match id {
+            1 => mouth_1.go_to(f_pos).await,
+            2 => mouth_2.go_to(f_pos).await,
+            3 => mouth_3.go_to(f_pos).await,
+            _ => {
+                defmt::error!("Invalid ID: {}", id);
+                continue;
+            }
+        };
+        match result {
             Ok(()) => {}
             Err(e) => defmt::error!(
                 "Error sending a position to the actuator: {}; discarding...",

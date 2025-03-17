@@ -381,3 +381,14 @@ impl Item for BackupReady {
     const BYTES: u16 = 1;
     const DESCRIPTION: &str = "Backup Ready";
 }
+
+#[repr(u8)]
+pub enum Baud {
+    Baud9600 = 0,
+    Baud57600 = 1,
+    Baud115200 = 2,
+    Baud1000000 = 3,
+    Baud2000000 = 4,
+    Baud3000000 = 5,
+    Baud4000000 = 6,
+}

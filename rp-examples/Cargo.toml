@@ -19,7 +19,8 @@ reqwest = { version = "*", features = ["blocking"] }
 # ] }
 # defmt = { git = "https://github.com/knurling-rs/defmt.git" }
 # defmt-rtt = { git = "https://github.com/knurling-rs/defmt.git" }
-# # dxl-driver = { path = "../driver" }
+# dxl-driver = { path = "../driver" }
+# dxl-packet = { path = "../packet" }
 # dxl-rp = { path = "../rp" }
 # embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", features = [
 #   "arch-cortex-m",
@@ -61,7 +62,8 @@ cyw43 = { version = "*", features = ["bluetooth", "defmt", "firmware-logs"] }
 cyw43-pio = { version = "*", features = ["defmt"] }
 defmt = { version = "*" }
 defmt-rtt = { version = "*" }
-# dxl-driver = { path = "../driver" }
+dxl-driver = { path = "../driver" }
+dxl-packet = { path = "../packet" }
 dxl-rp = { path = "../rp" }
 embassy-executor = { version = "*", features = [
   "arch-cortex-m",
