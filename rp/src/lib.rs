@@ -13,13 +13,14 @@ use {
     core::ops::DerefMut,
     dxl_driver::bus::Bus,
     dxl_packet::stream::Stream,
+    embassy_futures::yield_now,
     embassy_rp::{
         dma, gpio, interrupt,
         uart::{self, Uart},
         Peripheral,
     },
     embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
-    embassy_time::{with_timeout, Duration, TimeoutError},
+    embassy_time::{with_timeout, Duration, Instant, TimeoutError},
     pull_high::PullHigh,
 };
 
@@ -128,6 +129,11 @@ impl<'tx_en, 'uart, HardwareUart: uart::Instance> dxl_driver::comm::Comm
         drop(enable_tx);
         Ok(serial::RxStream::new(&mut self.uart))
     }
+
+    #[inline(always)]
+    async fn yield_to_other_tasks() {
+        let () = yield_now().await;
+    }
 }
 
 pub struct Mutex<Item>(embassy_sync::mutex::Mutex<CriticalSectionRawMutex, Item>);
@@ -143,7 +149,17 @@ impl<Item> dxl_driver::mutex::Mutex for Mutex<Item> {
 
     #[inline(always)]
     async fn lock(&self) -> Result<impl DerefMut<Target = Self::Item>, Self::Error> {
-        with_timeout(TIMEOUT_LOCK, self.0.lock()).await
+        let start = Instant::now();
+        // with_timeout(TIMEOUT_LOCK, self.0.lock()).await
+        loop {
+            if let Ok(ok) = self.0.try_lock() {
+                return Ok(ok);
+            }
+            let () = yield_now().await;
+            if start.elapsed() > TIMEOUT_LOCK {
+                return Err(TimeoutError);
+            }
+        }
     }
 }
 

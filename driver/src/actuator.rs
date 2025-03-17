@@ -266,13 +266,16 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
                     ),
                 ))) => {
                     defmt::debug!(
-                        "Maximum velocity of `{}` is too much; cutting in half...",
-                        max
+                        "Maximum velocity of `{}` is too much for ID {} (\"{}\"); cutting in half...",
+                        max,
+                        ID,
+                        description,
                     );
                     max >>= 1
                 }
                 Err(error) => return Err(InitError::Write { id: ID, error }),
             }
+            let () = C::yield_to_other_tasks().await;
         }
         Ok(actuator)
     }
@@ -324,6 +327,7 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
             .follow_to(position, tolerance)
             .await
             .map_err(InitError::FollowTo)?;
+        defmt::info!("{} reached its goal position of {}", actuator, position);
         actuator
             .reset_acceleration_profile()
             .await
@@ -434,6 +438,7 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
                 defmt::debug!("Dynamixel #{} reached its goal position ({})", ID, position);
                 return Ok(());
             }
+            let () = C::yield_to_other_tasks().await;
         }
     }
 

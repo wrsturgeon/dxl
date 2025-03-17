@@ -1,4 +1,5 @@
 use {
+    embassy_futures::yield_now,
     embassy_rp::uart::{self, Uart},
     embassy_time::{with_timeout, TimeoutError},
 };
@@ -50,6 +51,7 @@ impl<'lock, 'uart, HardwareUart: uart::Instance> RxStream<'lock, 'uart, Hardware
                 Err(uart::Error::Break) => defmt::warn!("UART break"),
                 Err(e) => return Err(e),
             }
+            let () = yield_now().await;
         }
     }
 }

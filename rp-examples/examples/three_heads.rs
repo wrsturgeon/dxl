@@ -8,6 +8,7 @@ use {
     dxl_driver::bus::Bus,
     dxl_rp::{Actuator, Comm, Mutex},
     embassy_executor::Spawner,
+    embassy_futures::join::join,
     embassy_net::udp::{self, UdpSocket},
     embassy_rp::{
         bind_interrupts,
@@ -27,7 +28,6 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => usb::InterruptHandler<USB>;
 });
 
-const DXL_ID: u8 = 1;
 const BAUD: u32 = 1_000_000;
 
 const CYW43_POWER_MANAGEMENT: cyw43::PowerManagementMode = cyw43::PowerManagementMode::None; // cyw43::PowerManagementMode::PowerSave;
@@ -42,9 +42,17 @@ async fn persistent_actuator_init<'tx_en, 'uart, 'bus, const ID: u8>(
     description: &'static str,
     dxl_bus: &'bus Mutex<Bus<Comm<'tx_en, 'uart, UART0>>>,
 ) -> Actuator<'tx_en, 'uart, 'bus, ID, UART0> {
+    defmt::debug!(
+        "Running `persistent_actuator_init` for \"{}\"...",
+        description
+    );
     loop {
+        defmt::debug!("Calling `init_at_position` for \"{}\"...", description);
         match Actuator::<ID, _>::init_at_position(dxl_bus, description, 0.5, 0.001).await {
-            Ok(ok) => return ok,
+            Ok(ok) => {
+                defmt::debug!("`init_at_position` succeeded for \"{}\"", description);
+                return ok;
+            }
             Err(e) => defmt::error!(
                 "Error initializing Dynamixel ID {} (\"{}\"): {}; retrying...",
                 ID,
@@ -52,6 +60,10 @@ async fn persistent_actuator_init<'tx_en, 'uart, 'bus, const ID: u8>(
                 e
             ),
         }
+        defmt::debug!(
+            "Waiting a second before trying again with \"{}\"...",
+            description
+        );
         let () = Timer::after(Duration::from_secs(1)).await;
     }
 }
@@ -174,10 +186,19 @@ async fn main(spawner: Spawner) {
         BAUD, p.PIN_13, p.UART0, p.PIN_16, p.PIN_17, Irqs, p.DMA_CH1, p.DMA_CH2,
     );
 
-    // TODO: join these!
+    /*
     let mut mouth_1 = persistent_actuator_init::<1>("Mouth #1", &dxl_bus).await;
     let mut mouth_2 = persistent_actuator_init::<2>("Mouth #2", &dxl_bus).await;
     let mut mouth_3 = persistent_actuator_init::<3>("Mouth #3", &dxl_bus).await;
+    */
+    let ((mut mouth_1, mut mouth_2), mut mouth_3) = join(
+        join(
+            persistent_actuator_init::<1>("Mouth #1", &dxl_bus),
+            persistent_actuator_init::<2>("Mouth #2", &dxl_bus),
+        ),
+        persistent_actuator_init::<3>("Mouth #3", &dxl_bus),
+    )
+    .await;
 
     let mut udp_buffer = [0; UDP_BUFFER_SIZE];
     'main_loop: loop {

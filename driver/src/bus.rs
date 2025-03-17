@@ -163,6 +163,7 @@ impl<C: Comm> Bus<C> {
                 ::dxl_packet::parse::Status::Complete(complete) => return Ok(complete),
                 ::dxl_packet::parse::Status::Incomplete((updated, ())) => updated,
             };
+            let () = C::yield_to_other_tasks().await;
         }
     }
 
