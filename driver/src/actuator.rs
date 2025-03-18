@@ -3,6 +3,28 @@ use {
     paste::paste,
 };
 
+pub enum Error<C: Comm> {
+    Io(crate::IoError<C>),
+    Software(::dxl_packet::packet::recv::SoftwareError),
+    Hardware(::dxl_packet::recv::HardwareErrorStatus),
+    HardwareUnknown,
+}
+
+impl<C: Comm> defmt::Format for Error<C> {
+    #[inline]
+    fn format(&self, f: defmt::Formatter) {
+        match *self {
+            Self::Io(ref e) => defmt::Format::format(e, f),
+            Self::Software(ref e) => defmt::write!(f, "Actuator returned a software error: {}", e),
+            Self::Hardware(ref e) => defmt::write!(f, "Actuator reported a hardware error: {}", e),
+            Self::HardwareUnknown => defmt::write!(
+                f,
+                "Actuator reported a hardware error but then could not report what it was"
+            ),
+        }
+    }
+}
+
 macro_rules! instruction_method {
     ($id:ident) => {
         #[inline(always)]
@@ -10,23 +32,21 @@ macro_rules! instruction_method {
             &self,
         ) -> Result<
             paste! { ::dxl_packet::recv::[< $id:camel >] },
-            crate::Error<
-                C,
-                M,
-                paste! { <::dxl_packet::send::[< $id:camel >] as ::dxl_packet::Instruction>::Recv },
-            >,
+            $crate::ActuatorError<C, M>,
         > {
             #[cfg(debug_assertions)]
             {
                 paste! { defmt::debug!("{} {}...", <::dxl_packet::send::[< $id:camel >] as ::dxl_packet::Instruction>::GERUND, self) };
             }
-            self.bus
-                .lock()
-                .await
-                .map_err(crate::Error::Mutex)?
-                .$id::<ID>()
-                .await
-                .map_err(crate::Error::Bus)
+            let result = {
+                let mut lock = self.bus.lock().await.map_err(crate::ActuatorError::Mutex)?;
+                lock.$id::<ID>().await
+                // release mutex lock by ending `lock`'s scope
+            };
+            match result {
+                Ok(ok) => Ok(ok),
+                Err(e) => Err(crate::ActuatorError::Packet(self.complete_bus_error(e).await)),
+            }
         }
     };
 }
@@ -37,56 +57,79 @@ macro_rules! control_table_methods {
             #[inline]
             pub async fn [< read_ $id:snake >](
                 &self,
-            ) -> Result<[< u $bits >], crate::Error<C, M, [< u $bits >]>> {
+            ) -> Result<[< u $bits >], $crate::ActuatorError<C, M>> {
                 #[cfg(debug_assertions)]
                 {
                     defmt::debug!("Reading {}'s {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION);
                 }
-                let ::dxl_packet::recv::Read { bytes } = self.bus
-                    .lock()
-                    .await
-                    .map_err(crate::Error::Mutex)?
-                    .[< read_ $id:snake >]::<ID>()
-                    .await
-                    .map_err(|e| crate::Error::Bus(e.map(|::dxl_packet::recv::Read { bytes }| [< u $bits >]::from_le_bytes(bytes))))?;
-                let uint = [< u $bits >]::from_le_bytes(bytes);
-                #[cfg(debug_assertions)]
-                {
-                    defmt::debug!("    --> {}'s {} is {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, uint);
+                let result = {
+                    let mut lock = self.bus.lock().await.map_err(crate::ActuatorError::Mutex)?;
+                    lock.[< read_ $id:snake >]::<ID>().await
+                    // release mutex lock by ending `lock`'s scope
+                };
+                match result {
+                    Ok(::dxl_packet::recv::Read { bytes }) => {
+                        let uint = [< u $bits >]::from_le_bytes(bytes);
+                        #[cfg(debug_assertions)]
+                        {
+                            defmt::debug!("    --> {}'s {} is {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, uint);
+                        }
+                        Ok(uint)
+                    }
+                    Err(e) => Err(crate::ActuatorError::Packet(self.complete_bus_error(e).await)),
                 }
-                Ok(uint)
             }
 
             #[inline]
             pub async fn [< write_ $id:snake >](
                 &self, value: [< u $bits >],
-            ) -> Result<(), crate::Error<C, M, ()>> {
+            ) -> Result<(), $crate::ActuatorError<C, M>> {
                 #[cfg(debug_assertions)]
                 {
                     defmt::debug!("Writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
                 }
-                let () = self.bus.lock().await.map_err(crate::Error::Mutex)?.[< write_ $id:snake >]::<ID>(value.to_le_bytes()).await.map_err(crate::Error::Bus)?;
-                #[cfg(debug_assertions)]
-                {
-                    defmt::debug!("    --> updated {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                let bytes = value.to_le_bytes();
+                let result = {
+                    let mut lock = self.bus.lock().await.map_err(crate::ActuatorError::Mutex)?;
+                    lock.[< write_ $id:snake >]::<ID>(bytes).await
+                    // release mutex lock by ending `lock`'s scope
+                };
+                match result {
+                    Ok(()) => {
+                        #[cfg(debug_assertions)]
+                        {
+                            defmt::debug!("    --> updated {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                        }
+                        Ok(())
+                    }
+                    Err(e) => Err(crate::ActuatorError::Packet(self.complete_bus_error(e).await)),
                 }
-                Ok(())
             }
 
             #[inline]
             pub async fn [< reg_write_ $id:snake >](
                 &self, value: [< u $bits >],
-            ) -> Result<(), crate::Error<C, M, ()>> {
+            ) -> Result<(), $crate::ActuatorError<C, M>> {
                 #[cfg(debug_assertions)]
                 {
                     defmt::debug!("Register-writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
                 }
-                let () = self.bus.lock().await.map_err(crate::Error::Mutex)?.[< reg_write_ $id:snake >]::<ID>(value.to_le_bytes()).await.map_err(crate::Error::Bus)?;
-                #[cfg(debug_assertions)]
-                {
-                    defmt::debug!("    --> registered an update of {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                let bytes = value.to_le_bytes();
+                let result = {
+                    let mut lock = self.bus.lock().await.map_err(crate::ActuatorError::Mutex)?;
+                    lock.[< reg_write_ $id:snake >]::<ID>(bytes).await
+                    // release mutex lock by ending `lock`'s scope
+                };
+                match result {
+                    Ok(()) => {
+                        #[cfg(debug_assertions)]
+                        {
+                            defmt::debug!("    --> registered an update of {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                        }
+                        Ok(())
+                    }
+                    Err(e) => Err(crate::ActuatorError::Packet(self.complete_bus_error(e).await)),
                 }
-                Ok(())
             }
         }
     };
@@ -95,7 +138,7 @@ macro_rules! control_table_methods {
 pub enum InitError<C: Comm, M: Mutex> {
     Write {
         id: u8,
-        error: crate::Error<C, M, ::dxl_packet::recv::Write>,
+        error: crate::ActuatorError<C, M>,
     },
     FollowTo(FollowToError<C, M>),
     #[cfg(debug_assertions)]
@@ -134,7 +177,7 @@ pub enum RelativePositionError<C: Comm, M: Mutex> {
     },
     Limits {
         id: u8,
-        error: crate::Error<C, M, u32>,
+        error: crate::ActuatorError<C, M>,
     },
 }
 
@@ -158,7 +201,7 @@ pub enum GoToError<C: Comm, M: Mutex> {
     RelativePosition(RelativePositionError<C, M>),
     Write {
         id: u8,
-        error: crate::Error<C, M, ()>,
+        error: crate::ActuatorError<C, M>,
     },
 }
 
@@ -178,7 +221,7 @@ pub enum FollowToError<C: Comm, M: Mutex> {
     RelativePosition(RelativePositionError<C, M>),
     Write {
         id: u8,
-        error: crate::Error<C, M, ()>,
+        error: crate::ActuatorError<C, M>,
     },
     Position(PosError<C, M>),
 }
@@ -199,7 +242,7 @@ impl<C: Comm, M: Mutex> defmt::Format for FollowToError<C, M> {
 pub enum PosError<C: Comm, M: Mutex> {
     Read {
         id: u8,
-        error: crate::Error<C, M, u32>,
+        error: crate::ActuatorError<C, M>,
     },
     RelativePosition(RelativePositionError<C, M>),
 }
@@ -260,10 +303,8 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
         'max_velocity: loop {
             match actuator.write_profile_velocity(max).await {
                 Ok(()) => break 'max_velocity,
-                Err(crate::Error::Bus(crate::bus::Error::Parse(
-                    ::dxl_packet::packet::recv::PersistentError::Software(
-                        ::dxl_packet::packet::recv::SoftwareError::DataRangeError,
-                    ),
+                Err(crate::ActuatorError::Packet(crate::actuator::Error::Software(
+                    ::dxl_packet::packet::recv::SoftwareError::DataRangeError,
                 ))) => {
                     defmt::debug!(
                         "Maximum velocity of `{}` is too much for ID {} (\"{}\"); cutting in half...",
@@ -335,8 +376,87 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
         Ok(actuator)
     }
 
+    #[inline]
+    async fn complete_bus_error<Output>(
+        &self,
+        error_including_hardware: crate::bus::Error<C, Output>,
+    ) -> Error<C> {
+        match error_including_hardware {
+            crate::bus::Error::Io(e) => Error::Io(e),
+            crate::bus::Error::Packet(e) => self.complete_packet_error(e).await,
+        }
+    }
+
+    #[inline]
+    async fn complete_packet_error<Output>(
+        &self,
+        error_including_hardware: ::dxl_packet::packet::recv::PersistentError<Output>,
+    ) -> Error<C> {
+        match error_including_hardware {
+            ::dxl_packet::packet::recv::PersistentError::Software(e) => Error::Software(e),
+            ::dxl_packet::packet::recv::PersistentError::Hardware(..) => {
+                defmt::debug!("Hardware error reported for {}; reading it...", self);
+                let hardware_error = {
+                    let result = match self.bus.lock().await {
+                        Ok(mut lock) => lock
+                            .read_hardware_error_status::<ID>()
+                            .await
+                            .map_err(crate::BusError::<_, M, _>::Packet),
+                        Err(e) => Err(crate::BusError::Mutex(e)),
+                    };
+                    match result {
+                        Ok(::dxl_packet::recv::Read { bytes: [byte] })
+                        | Err(crate::BusError::Packet(crate::bus::Error::Packet(
+                            ::dxl_packet::packet::recv::PersistentError::Hardware(
+                                ::dxl_packet::recv::Read { bytes: [byte] },
+                            ),
+                        ))) => Error::Hardware(
+                            ::dxl_packet::recv::HardwareErrorStatus::parse_byte(byte),
+                        ),
+                        Err(e) => {
+                            defmt::error!(
+                                "While reading a hardware error for {}, another error occurred: {}",
+                                self,
+                                e
+                            );
+                            Error::HardwareUnknown
+                        }
+                    }
+                };
+                defmt::error!("HARDWARE ERROR FOR {}: {}", self, hardware_error);
+                let reboot_result = match self.bus.lock().await {
+                    Ok(mut lock) => lock
+                        .reboot::<ID>()
+                        .await
+                        .map_err(crate::BusError::<_, M, _>::Packet),
+                    Err(e) => Err(crate::BusError::Mutex(e)),
+                };
+                let () = match reboot_result {
+                    Ok(()) => 'torque_on: loop {
+                        let torque_result = match self.bus.lock().await {
+                            Ok(mut lock) => lock
+                                .write_torque_enable::<ID>([1])
+                                .await
+                                .map_err(crate::BusError::<_, M, _>::Packet),
+                            Err(e) => Err(crate::BusError::Mutex(e)),
+                        };
+                        match torque_result {
+                            Ok(()) => break 'torque_on,
+                            Err(crate::BusError::Mutex(e)) => defmt::debug!("Still waiting to enable torque for {}: {}; probably still rebooting", self, e),
+                            Err(crate::BusError::Packet(crate::bus::Error::Io(e))) => defmt::debug!("Still waiting to enable torque for {}: {}; probably still rebooting", self, e),
+                            Err(e) => defmt::error!("Couldn't enable torque for {}: {}", self, e),
+                        }
+                        let () = C::yield_to_other_tasks().await;
+                    },
+                    Err(e) => defmt::error!("Couldn't reboot {}: {}", self, e),
+                };
+                hardware_error
+            }
+        }
+    }
+
     #[inline(always)]
-    pub async fn reset_acceleration_profile(&self) -> Result<(), crate::Error<C, M, ()>> {
+    pub async fn reset_acceleration_profile(&self) -> Result<(), crate::ActuatorError<C, M>> {
         self.write_profile_acceleration(
             // Snappy enough without seeming digital:
             128,
@@ -345,17 +465,17 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
     }
 
     #[inline(always)]
-    pub async fn torque_off(&self) -> Result<(), crate::Error<C, M, ()>> {
+    pub async fn torque_off(&self) -> Result<(), crate::ActuatorError<C, M>> {
         self.write_torque_enable(0).await
     }
 
     #[inline(always)]
-    pub async fn torque_on(&self) -> Result<(), crate::Error<C, M, ()>> {
+    pub async fn torque_on(&self) -> Result<(), crate::ActuatorError<C, M>> {
         self.write_torque_enable(1).await
     }
 
     #[inline]
-    pub async fn limits(&mut self) -> Result<&KnownLimits, crate::Error<C, M, u32>> {
+    pub async fn limits(&mut self) -> Result<&KnownLimits, crate::ActuatorError<C, M>> {
         // If not already cached, calculate and cache:
         Ok(match self.limits {
             Some(ref known) => known,

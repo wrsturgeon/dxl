@@ -95,7 +95,7 @@ embassy-rp = { version = "*", features = [
   "time-driver",
   "unstable-pac",
 ] }
-heapless = { version = "*", default-feautures = false }
+heapless = { version = "*" }
 panic-probe = { version = "*", features = ["print-defmt"] }
 rand_core = { version = "0.6.4" }
 static_cell = { version = "*" }

@@ -47,8 +47,8 @@
               picotool
               probe-rs-tools
             ]);
-          DEFMT_LOG = "debug";
-          RUST_BACKTRACE = "1";
+          # DEFMT_LOG = "debug";
+          # RUST_BACKTRACE = "1";
         };
         formatter = treefmt.config.build.wrapper;
       }

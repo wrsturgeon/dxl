@@ -10,32 +10,67 @@ pub mod bus;
 pub mod comm;
 pub mod mutex;
 
-#[derive(defmt::Format)]
-pub enum Error<C: comm::Comm, M: mutex::Mutex, Output> {
-    Mutex(<M as mutex::Mutex>::Error),
-    Bus(bus::Error<C, Output>),
+pub enum IoError<C: comm::Comm> {
+    Send(<C as comm::Comm>::SendError),
+    Recv(<C as comm::Comm>::RecvError),
 }
 
-impl<C: comm::Comm, M: mutex::Mutex, X> Error<C, M, X> {
+impl<C: comm::Comm> defmt::Format for IoError<C> {
     #[inline]
-    pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> Error<C, M, Y> {
-        match self {
-            Self::Mutex(e) => Error::Mutex(e),
-            Self::Bus(e) => Error::Bus(e.map(f)),
+    fn format(&self, f: defmt::Formatter) {
+        match *self {
+            Self::Send(ref e) => defmt::write!(f, "Error while sending a packet: {}", e),
+            Self::Recv(ref e) => defmt::write!(f, "Error while receiving a packet: {}", e),
         }
     }
 }
 
+pub enum BusError<C: comm::Comm, M: mutex::Mutex, Output> {
+    Mutex(<M as mutex::Mutex>::Error),
+    Packet(bus::Error<C, Output>),
+}
+
 /*
-impl<C: comm::Comm, M: mutex::Mutex, Output> defmt::Format for Error<C, M, Output> {
+impl<C: comm::Comm, M: mutex::Mutex, X> BusError<C, M, X> {
     #[inline]
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match *self {
-            Self::Mutex(ref e) => {
-                write!(f, "Error waiting for permission to use the serial bus: {e}")
-            }
-            Self::Bus(ref e) => write!(f, "Error using the serial bus: {e}"),
+    pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> BusError<C, M, Y> {
+        match self {
+            Self::Mutex(e) => BusError::Mutex(e),
+            Self::Packet(e) => BusError::Packet(e.map(f)),
         }
     }
 }
 */
+
+impl<C: comm::Comm, M: mutex::Mutex, Output> defmt::Format for BusError<C, M, Output> {
+    #[inline]
+    fn format(&self, f: defmt::Formatter) {
+        match *self {
+            Self::Mutex(ref e) => defmt::write!(
+                f,
+                "Error waiting for permission to use the Dynamixel serial bus: {}",
+                e
+            ),
+            Self::Packet(ref e) => defmt::write!(f, "Error from the Dynamixel serial bus: {}", e),
+        }
+    }
+}
+
+pub enum ActuatorError<C: comm::Comm, M: mutex::Mutex> {
+    Mutex(<M as mutex::Mutex>::Error),
+    Packet(actuator::Error<C>),
+}
+
+impl<C: comm::Comm, M: mutex::Mutex> defmt::Format for ActuatorError<C, M> {
+    #[inline]
+    fn format(&self, f: defmt::Formatter) {
+        match *self {
+            Self::Mutex(ref e) => defmt::write!(
+                f,
+                "Error waiting for permission to use the Dynamixel serial bus: {}",
+                e
+            ),
+            Self::Packet(ref e) => defmt::write!(f, "Error from the Dynamixel serial bus: {}", e),
+        }
+    }
+}

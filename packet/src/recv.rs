@@ -45,6 +45,106 @@ pub type Action = ();
 pub type FactoryReset = ();
 pub type Reboot = ();
 
+#[non_exhaustive]
+#[cfg_attr(
+    test,
+    derive(
+        Clone,
+        Copy,
+        Debug,
+        Eq,
+        Ord,
+        PartialEq,
+        PartialOrd,
+        strum_macros::VariantArray
+    )
+)]
+pub struct HardwareErrorStatus {
+    input_voltage: bool,
+    overheat: bool,
+    electric_shock: bool,
+    overload: bool,
+    unrecognized: bool,
+}
+
+impl defmt::Format for HardwareErrorStatus {
+    #[inline]
+    fn format(&self, f: defmt::Formatter) {
+        let mut so_far = false;
+        if self.input_voltage {
+            so_far = true;
+            defmt::write!(f, "input voltage out of safe range");
+        }
+        if self.overheat {
+            if so_far {
+                defmt::write!(f, " AND ");
+            }
+            so_far = true;
+            defmt::write!(f, "overheating");
+        }
+        if self.electric_shock {
+            if so_far {
+                defmt::write!(f, " AND ");
+            }
+            so_far = true;
+            defmt::write!(f, "electric shock");
+        }
+        if self.overload {
+            if so_far {
+                defmt::write!(f, " AND ");
+            }
+            so_far = true;
+            defmt::write!(f, "overload");
+        }
+        if self.unrecognized {
+            if so_far {
+                defmt::write!(f, " AND ");
+            }
+            so_far = true;
+            defmt::write!(
+                f,
+                "an unrecognized error (INTERNAL ERROR: update the protocol?)"
+            );
+        }
+        if !so_far {
+            defmt::write!(f, "[INTERNAL ERROR: no hardware errors]");
+        }
+    }
+}
+
+impl HardwareErrorStatus {
+    #[inline]
+    pub fn parse_byte(mut byte: u8) -> Self {
+        let mut build = Self {
+            input_voltage: false,
+            overheat: false,
+            electric_shock: false,
+            overload: false,
+            unrecognized: false,
+        };
+        if (byte & 0b1) != 0 {
+            build.input_voltage = true;
+            byte &= !0b1;
+        }
+        if (byte & 0b100) != 0 {
+            build.overheat = true;
+            byte &= !0b100;
+        }
+        if (byte & 0b10000) != 0 {
+            build.electric_shock = true;
+            byte &= !0b10000;
+        }
+        if (byte & 0b100000) != 0 {
+            build.overload = true;
+            byte &= !0b100000;
+        }
+        if byte != 0 {
+            build.unrecognized = true;
+        }
+        build
+    }
+}
+
 mod parse {
     use {
         crate::{control_table, parse},

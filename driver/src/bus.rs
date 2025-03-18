@@ -1,31 +1,28 @@
 use {crate::comm::Comm, paste::paste};
 
-#[derive(defmt::Format)]
 pub enum Error<C: Comm, Output> {
-    Send(<C as Comm>::SendError),
-    Recv(<C as Comm>::RecvError),
-    Parse(::dxl_packet::packet::recv::PersistentError<Output>),
+    Io(crate::IoError<C>),
+    Packet(::dxl_packet::packet::recv::PersistentError<Output>),
 }
 
+impl<C: Comm, Output> defmt::Format for Error<C, Output> {
+    #[inline]
+    fn format(&self, f: defmt::Formatter) {
+        match *self {
+            Self::Io(ref e) => defmt::Format::format(e, f),
+            Self::Packet(ref e) => defmt::write!(f, "Valid packet describing a real error: {}", e),
+        }
+    }
+}
+
+/*
 impl<C: Comm, X> Error<C, X> {
     #[inline]
     pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> Error<C, Y> {
         match self {
             Self::Send(e) => Error::Send(e),
             Self::Recv(e) => Error::Recv(e),
-            Self::Parse(e) => Error::Parse(e.map(f)),
-        }
-    }
-}
-
-/*
-impl<C: Comm, Output> defmt::Format for Error<C, Output> {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Send(ref e) => write!(f, "Error sending serial communication: {e}"),
-            Self::Recv(ref e) => write!(f, "Error receiving serial communication: {e}"),
-            Self::Parse(ref e) => write!(f, "Error parsing received serial communication: {e}"),
+            Self::Packet(e) => Error::Packet(e.map(f)),
         }
     }
 }
@@ -152,14 +149,16 @@ impl<C: Comm> Bus<C> {
             self.comm
                 .comm(packet.as_buffer())
                 .await
-                .map_err(Error::Send)?
+                .map_err(crate::IoError::Send)
+                .map_err(Error::Io)?
         };
         let mut state: ::dxl_packet::packet::recv::Persistent::<Insn, ID> = <::dxl_packet::packet::recv::Persistent::<Insn, ID> as ::dxl_packet::parse::State<_>>::INIT;
         loop {
             let byte: u8 = ::dxl_packet::stream::Stream::next(&mut stream)
                 .await
-                .map_err(Error::Recv)?;
-            state = match ::dxl_packet::parse::State::push(state, byte).map_err(Error::Parse)? {
+                .map_err(crate::IoError::Recv)
+                .map_err(Error::Io)?;
+            state = match ::dxl_packet::parse::State::push(state, byte).map_err(Error::Packet)? {
                 ::dxl_packet::parse::Status::Complete(complete) => return Ok(complete),
                 ::dxl_packet::parse::Status::Incomplete((updated, ())) => updated,
             };

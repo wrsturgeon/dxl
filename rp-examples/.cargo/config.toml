@@ -15,7 +15,9 @@ target = "thumbv8m.main-none-eabihf"
 
 [env]
 DEFMT_LOG = "debug"
+# DEFMT_LOG = "info"
 RUST_BACKTRACE = "1"
+RUSTFLAGS = "-Zmacro-backtrace"
 
 [unstable]
 build-std = ["core"]
