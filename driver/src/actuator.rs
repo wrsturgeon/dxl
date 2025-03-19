@@ -482,6 +482,7 @@ impl<'bus, const ID: u8, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, ID, C,
             None => self.limits.insert({
                 let max: u32 = self.read_max_position_limit().await?;
                 let min: u32 = self.read_min_position_limit().await?;
+                defmt::info!("Position limits for {}: [{}..{}]", self, min, max);
                 KnownLimits {
                     min: min as f32,
                     range: (max - min) as f32,

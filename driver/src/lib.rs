@@ -48,7 +48,7 @@ impl<C: comm::Comm, M: mutex::Mutex, Output> defmt::Format for BusError<C, M, Ou
         match *self {
             Self::Mutex(ref e) => defmt::write!(
                 f,
-                "Error waiting for permission to use the Dynamixel serial bus: {}",
+                "Mutex error while waiting to use the Dynamixel serial bus: {}",
                 e
             ),
             Self::Packet(ref e) => defmt::write!(f, "Error from the Dynamixel serial bus: {}", e),
@@ -67,8 +67,8 @@ impl<C: comm::Comm, M: mutex::Mutex> defmt::Format for ActuatorError<C, M> {
         match *self {
             Self::Mutex(ref e) => defmt::write!(
                 f,
-                "Error waiting for permission to use the Dynamixel serial bus: {}",
-                e
+                "Mutex error while waiting to use the Dynamixel serial bus: {}",
+                e,
             ),
             Self::Packet(ref e) => defmt::write!(f, "Error from the Dynamixel serial bus: {}", e),
         }

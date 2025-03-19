@@ -1697,6 +1697,7 @@ dependencies = [
  "embassy-time",
  "heapless",
  "panic-probe",
+ "paste",
  "rand_core",
  "reqwest",
  "static_cell",

@@ -17,8 +17,9 @@ use {
         pio::{self, Pio},
         uart, usb,
     },
-    embassy_time::{Duration, Timer},
+    embassy_time::{Duration, Instant, Timer},
     panic_probe as _,
+    paste::paste,
     static_cell::StaticCell,
 };
 
@@ -196,6 +197,101 @@ async fn main(spawner: Spawner) {
     .await;
 
     let mut udp_buffer = [0; UDP_BUFFER_SIZE];
+
+    {
+        #[inline]
+        fn rnd_unit() -> f32 {
+            let uint: u16 = rand_core::RngCore::next_u64(&mut embassy_rp::clocks::RoscRng) as u16;
+            let float: f32 = uint as f32 / 65535_f32;
+            // 0.25_f32 + (float * 0.5_f32)
+            float
+        }
+
+        match mouth_1.write_profile_acceleration(1).await {
+            Ok(()) => {}
+            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_1, e)
+        }
+        match mouth_2.write_profile_acceleration(1).await {
+            Ok(()) => {}
+            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_2, e)
+        }
+        match mouth_3.write_profile_acceleration(1).await {
+            Ok(()) => {}
+            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_3, e)
+        }
+
+        let mut pos_1 = rnd_unit();
+        defmt::info!("Keep-alive: moving {} to {}", mouth_1, pos_1);
+        match mouth_1.go_to(pos_1).await {
+            Err(e) => defmt::error!("Error moving {} to {}: {}", mouth_1, pos_1, e),
+            Ok(()) => {}
+        }
+        let mut pos_2 = rnd_unit();
+        defmt::info!("Keep-alive: moving {} to {}", mouth_2, pos_2);
+        match mouth_2.go_to(pos_2).await {
+            Err(e) => defmt::error!("Error moving {} to {}: {}", mouth_2, pos_2, e),
+            Ok(()) => {}
+        }
+        let mut pos_3 = rnd_unit();
+        defmt::info!("Keep-alive: moving {} to {}", mouth_3, pos_3);
+        match mouth_3.go_to(pos_3).await {
+            Err(e) => defmt::error!("Error moving {} to {}: {}", mouth_3, pos_3, e),
+            Ok(()) => {}
+        }
+
+        let mut next = Instant::now();
+
+        // Keep-alive animation while we're waiting for our first packet:
+        'keep_alive: loop {
+
+            macro_rules! per_actuator {
+                ($id:tt) => { paste! {
+                    match [< mouth_ $id >].pos().await {
+                        Err(e) => paste! { defmt::error!("Error reading position of {}: {}", [< mouth_ $id >], e) },
+                        Ok(actual_position) => {
+                            // defmt::info!("{}:", [< mouth_ $id >]);
+                            // defmt::info!("Actual: {}", actual_position);
+                            // defmt::info!(" Ideal: {}", [< pos_ $id >]);
+                            // defmt::info!("");
+                            if (actual_position - [< pos_ $id >]).abs() < 0.01 {
+                                [< pos_ $id >] = rnd_unit();
+                                defmt::info!("Keep-alive: moving {} to {}", [< mouth_ $id >], [< pos_ $id >]);
+                                match [< mouth_ $id >].go_to([< pos_ $id >]).await {
+                                    Err(e) => defmt::error!("Error moving {} to {}: {}", [< mouth_ $id >], [< pos_ $id >], e),
+                                    Ok(()) => {}
+                                }
+                            }
+                        }
+                    }
+                } }
+            }
+
+            per_actuator!(1);
+            per_actuator!(2);
+            per_actuator!(3);
+
+            if socket.may_recv() {
+                break 'keep_alive
+            }
+
+            next += Duration::from_millis(20);
+            let () = Timer::at(next).await;
+        }
+
+        match mouth_1.reset_acceleration_profile().await {
+            Ok(()) => {}
+            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_1, e)
+        }
+        match mouth_2.reset_acceleration_profile().await {
+            Ok(()) => {}
+            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_2, e)
+        }
+        match mouth_3.reset_acceleration_profile().await {
+            Ok(()) => {}
+            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_3, e)
+        }
+    }
+
     'main_loop: loop {
         let (n_bytes, endpoint) = match socket.recv_from(&mut udp_buffer).await {
             Ok(ok) => ok,

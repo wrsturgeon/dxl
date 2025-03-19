@@ -99,3 +99,6 @@ heapless = { version = "*" }
 panic-probe = { version = "*", features = ["print-defmt"] }
 rand_core = { version = "0.6.4" }
 static_cell = { version = "*" }
+
+[dev-dependencies]
+paste = "*"

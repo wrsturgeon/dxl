@@ -17,7 +17,7 @@ use {
         pio::{self, Pio},
         uart, usb,
     },
-    embassy_time::{Duration, Timer},
+    embassy_time::{Duration, Instant, Timer},
     panic_probe as _,
     static_cell::StaticCell,
 };
@@ -37,6 +37,10 @@ const UDP_RX_BUFFER_SIZE: usize = 256;
 const UDP_TX_BUFFER_SIZE: usize = 256;
 const UDP_RX_META_SIZE: usize = 256;
 const UDP_TX_META_SIZE: usize = 256;
+
+const KEEP_ALIVE_GRACE_PERIOD: Duration = Duration::from_millis(100);
+const KEEP_ALIVE_ACCELERATION_PROFILE: u32 = 1;
+const KEEP_ALIVE_POSITION_TOLERANCE: f32 = 0.001;
 
 async fn persistent_actuator_init<'tx_en, 'uart, 'bus, const ID: u8>(
     description: &'static str,
@@ -195,6 +199,13 @@ async fn main(spawner: Spawner) {
     )
     .await;
 
+    let mut last_packet_1 = Instant::now();
+    let mut last_packet_2 = Instant::now();
+    let mut last_packet_3 = Instant::now();
+    let mut keep_alive_1 = None;
+    let mut keep_alive_2 = None;
+    let mut keep_alive_3 = None;
+
     let mut udp_buffer = [0; UDP_BUFFER_SIZE];
     'main_loop: loop {
         let (n_bytes, endpoint) = match socket.recv_from(&mut udp_buffer).await {
@@ -279,11 +290,56 @@ async fn main(spawner: Spawner) {
             }
         }
 
+        macro_rules! enable_keep_alive {
+            ($id:ident) => { paste! {
+                let pos = rand_core::RngCore::next_u64(&mut embassy_rp::clocks::RoscRng) as u16;
+                [< keep_alive_ $id >] = Some(pos),
+                let () = match [< mouth_ $id >].write_acceleration_profile(KEEP_ALIVE_ACCELERATION_PROFILE).await {
+                    Ok(()) => {}
+                    Err(e) => [< defmt::error!("Couldn't write {}'s acceleration profile: {}", mouth_ $id, e) >],
+                };
+                let () = match [< mouth_ $id >].go_to(pos as f32 / 65536_f32).await {
+                    Ok(()) => {}
+                    Err(e) => [< defmt::error!("Couldn't move {} to {}: {}", mouth_ $id, pos, e) >],
+                };
+            } }
+        }
+
+        macro_rules! check_keep_alive {
+            ($id:ident) => { paste! {
+                if [< keep_alive_ $id >].is_none() && [< last_packet_ $id >].elapsed() > KEEP_ALIVE_GRACE_PERIOD {
+                    enable_keep_alive!($id);
+                }
+            } }
+        }
+
+        macro_rules! disable_keep_alive {
+            ($id:ident) => { paste! {
+                [< last_packet_ $id >] = Instant::now();
+                if [< keep_alive_ $id >].is_some() {
+                    [< keep_alive_ $id >] = None;
+                    let () = match [< mouth_ $id >].reset_acceleration_profile().await {
+                        Ok(()) => {}
+                        Err(e) => defmt::error!("Couldn't reset {}'s acceleration profile: {}", [< mouth_ $id >], e),
+                    };
+                }
+            } }
+        }
+
         let f_pos = pos as f32 / 65535_f32;
         let result = match id {
-            1 => mouth_1.go_to(f_pos).await,
-            2 => mouth_2.go_to(f_pos).await,
-            3 => mouth_3.go_to(f_pos).await,
+            1 => {
+                disable_keep_alive!(1);
+                mouth_1.go_to(f_pos).await
+            }
+            2 => {
+                disable_keep_alive!(2);
+                mouth_2.go_to(f_pos).await
+            }
+            3 => {
+                disable_keep_alive!(3);
+                mouth_3.go_to(f_pos).await
+            }
             _ => {
                 defmt::error!("Invalid ID: {}", id);
                 continue;
@@ -295,6 +351,21 @@ async fn main(spawner: Spawner) {
                 "Error sending a position to the actuator: {}; discarding...",
                 e
             ),
+        }
+
+        check_keep_alive!(1);
+        check_keep_alive!(2);
+        check_keep_alive!(3);
+
+        if let Some(ideal_pos) = keep_alive_1 {
+            let actual_pos = match mouth_1.read_present_position().await {
+                Ok(ok) => ok,
+                Err(e) => defmt::error!("{}", e),
+            };
+            let error = (actual_pos - ideal_pos).abs();
+            if error <= KEEP_ALIVE_POSITION_TOLERANCE {
+                asdf
+            }
         }
     }
 }

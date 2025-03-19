@@ -24,7 +24,8 @@ use {
     pull_high::PullHigh,
 };
 
-const TIMEOUT_LOCK: Duration = Duration::from_millis(100);
+// TODO: CHANGE
+const TIMEOUT_LOCK: Duration = Duration::from_millis(1000);
 const TIMEOUT_SEND: Duration = Duration::from_millis(100);
 const TIMEOUT_RECV: Duration = Duration::from_millis(100);
 
