@@ -50,7 +50,7 @@ async fn persistent_actuator_init<'tx_en, 'uart, 'bus>(
     );
     loop {
         defmt::debug!("Calling `init_at_position` for \"{}\"...", description);
-        match Actuator::init_at_position(dxl_bus, description, 0.5, 0.001).await {
+        match Actuator::init_at_position(dxl_bus, id, description, 0.5, 0.001).await {
             Ok(ok) => {
                 defmt::debug!("`init_at_position` succeeded for \"{}\"", description);
                 return ok;
@@ -190,10 +190,10 @@ async fn main(spawner: Spawner) {
 
     let ((mut mouth_1, mut mouth_2), mut mouth_3) = join(
         join(
-            persistent_actuator_init::<1>("Mouth #1", &dxl_bus),
-            persistent_actuator_init::<2>("Mouth #2", &dxl_bus),
+            persistent_actuator_init(1, "Mouth #1", &dxl_bus),
+            persistent_actuator_init(2, "Mouth #2", &dxl_bus),
         ),
-        persistent_actuator_init::<3>("Mouth #3", &dxl_bus),
+        persistent_actuator_init(3, "Mouth #3", &dxl_bus),
     )
     .await;
 
@@ -203,7 +203,7 @@ async fn main(spawner: Spawner) {
         #[inline]
         fn rnd_unit() -> f32 {
             let uint: u16 = rand_core::RngCore::next_u64(&mut embassy_rp::clocks::RoscRng) as u16;
-            uint as f32 / 65535_f32;
+            uint as f32 / 65535_f32
         }
 
         match mouth_1.write_profile_acceleration(1).await {

@@ -1,4 +1,8 @@
-use {crate::comm::Comm, ::dxl_packet::{New, packet::recv::PersistentConfig}, paste::paste};
+use {
+    crate::comm::Comm,
+    ::dxl_packet::{packet::recv::PersistentConfig, New},
+    paste::paste,
+};
 
 pub enum Error<C: Comm, Output> {
     Io(crate::IoError<C>),
@@ -136,9 +140,9 @@ impl<C: Comm> Bus<C> {
                 .map_err(Error::Io)?
         };
         let mut state: ::dxl_packet::packet::recv::Persistent<Insn> =
-            <::dxl_packet::packet::recv::Persistent<Insn> as New>::new(
-                PersistentConfig { expected_id: id },
-            );
+            <::dxl_packet::packet::recv::Persistent<Insn> as New>::new(PersistentConfig {
+                expected_id: id,
+            });
         loop {
             let byte: u8 = ::dxl_packet::stream::Stream::next(&mut stream)
                 .await

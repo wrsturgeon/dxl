@@ -565,7 +565,11 @@ impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, C, M> {
         loop {
             let actual_position = self.pos().await.map_err(FollowToError::Position)?;
             if (position - actual_position).abs() <= tolerance {
-                defmt::debug!("Dynamixel #{} reached its goal position ({})", self.id, position);
+                defmt::debug!(
+                    "Dynamixel #{} reached its goal position ({})",
+                    self.id,
+                    position
+                );
                 return Ok(());
             }
             let () = C::yield_to_other_tasks().await;
@@ -644,9 +648,7 @@ impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, C, M> {
     control_table_methods!(BackupReady, 8);
 }
 
-impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> defmt::Format
-    for Actuator<'bus, C, M>
-{
+impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> defmt::Format for Actuator<'bus, C, M> {
     #[inline]
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(f, "Dynamixel ID {} (\"{}\")", self.id, self.description)
