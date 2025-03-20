@@ -19,6 +19,15 @@ pub trait Instruction: Sized + defmt::Format {
     const GERUND: &'static str;
 
     type Recv: recv::Receive;
-    // type ParseState: parse::State<u8, Output = Self::Recv>;
-    // type Parser: parse::MaybeParse<u8, Self::ParseState>;
+}
+
+pub trait New {
+    type Config;
+    fn new(config: Self::Config) -> Self;
+}
+
+impl New for () {
+    type Config = ();
+    #[inline(always)]
+    fn new((): ()) -> Self {}
 }

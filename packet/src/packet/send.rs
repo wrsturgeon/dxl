@@ -5,30 +5,30 @@ use crate::{
 };
 
 #[repr(C, packed)]
-pub(crate) struct WithoutCrc<Insn: Instruction, const ID: u8>
+pub(crate) struct WithoutCrc<Insn: Instruction>
 where
     [(); { core::mem::size_of::<Insn>() as u16 + 3 } as usize]:,
     [(); { Insn::BYTE } as usize]:,
 {
     header: (C8<0xFF>, C8<0xFF>, C8<0xFD>),
     reserved: C8<0x00>,
-    id: C8<ID>,
+    id: u8,
     length: C16<{ core::mem::size_of::<Insn>() as u16 + 3 }>,
     instruction: C8<{ Insn::BYTE }>,
     parameters: Insn,
 }
 
-impl<Insn: Instruction, const ID: u8> WithoutCrc<Insn, ID>
+impl<Insn: Instruction> WithoutCrc<Insn>
 where
     [(); { core::mem::size_of::<Insn>() as u16 + 3 } as usize]:,
     [(); { Insn::BYTE } as usize]:,
 {
     #[inline(always)]
-    pub(crate) const fn new(parameters: Insn) -> Self {
+    pub(crate) const fn new(id: u8, parameters: Insn) -> Self {
         Self {
             header: (C8::new(), C8::new(), C8::new()),
             reserved: C8::new(),
-            id: C8::new(),
+            id,
             length: C16::new(),
             instruction: C8::new(),
             parameters,
@@ -42,28 +42,21 @@ where
         crc.push(0xFF);
         crc.push(0xFD);
         crc.push(0x00);
-        crc.push(ID);
-        {
-            let [lo, hi] = const { (core::mem::size_of::<Insn>() as u16 + 3).to_le_bytes() };
-            crc.push(lo);
-            crc.push(hi);
-        }
-        crc.push(Insn::BYTE);
         crc
     }
 }
 
 #[repr(C, packed)]
-pub struct WithCrc<Insn: Instruction, const ID: u8>
+pub struct WithCrc<Insn: Instruction>
 where
     [(); { core::mem::size_of::<Insn>() as u16 + 3 } as usize]:,
     [(); { Insn::BYTE } as usize]:,
 {
-    pub(crate) without_crc: WithoutCrc<Insn, ID>,
+    pub(crate) without_crc: WithoutCrc<Insn>,
     pub(crate) crc: [u8; 2],
 }
 
-impl<Insn: Instruction, const ID: u8> WithCrc<Insn, ID>
+impl<Insn: Instruction> WithCrc<Insn>
 where
     [(); { core::mem::size_of::<Insn>() as u16 + 3 } as usize]:,
     [(); { Insn::BYTE } as usize]:,

@@ -1,4 +1,4 @@
-use {crate::comm::Comm, paste::paste};
+use {crate::comm::Comm, ::dxl_packet::{New, packet::recv::PersistentConfig}, paste::paste};
 
 pub enum Error<C: Comm, Output> {
     Io(crate::IoError<C>),
@@ -15,38 +15,12 @@ impl<C: Comm, Output> defmt::Format for Error<C, Output> {
     }
 }
 
-/*
-impl<C: Comm, X> Error<C, X> {
-    #[inline]
-    pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> Error<C, Y> {
-        match self {
-            Self::Send(e) => Error::Send(e),
-            Self::Recv(e) => Error::Recv(e),
-            Self::Packet(e) => Error::Packet(e.map(f)),
-        }
-    }
-}
-*/
-
 #[derive(defmt::Format)]
 #[cfg(debug_assertions)]
 pub enum IdError {
     InvalidId { id: u8 },
     AlreadyInUse { id: u8 },
 }
-
-/*
-#[cfg(debug_assertions)]
-impl defmt::Format for IdError {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::InvalidId { id } => write!(f, "Invalid Dynamixel ID: {id}"),
-            Self::AlreadyInUse { id } => write!(f, "Dynamixel ID already in use: {id}"),
-        }
-    }
-}
-*/
 
 pub struct Bus<C: Comm> {
     comm: C,
@@ -57,8 +31,9 @@ pub struct Bus<C: Comm> {
 macro_rules! instruction_method {
     ($id:ident) => {
         #[inline]
-        pub async fn $id<const ID: u8>(
+        pub async fn $id(
             &mut self,
+            id: u8,
         ) -> Result<
             paste! { ::dxl_packet::recv::[< $id:camel >] },
             Error<
@@ -66,7 +41,8 @@ macro_rules! instruction_method {
                 <paste! { ::dxl_packet::send::[< $id:camel >] } as ::dxl_packet::Instruction>::Recv,
             >,
         > {
-            self.comm::<ID, paste! { ::dxl_packet::send:: [< $id:camel >] }>(
+            self.comm::<paste! { ::dxl_packet::send:: [< $id:camel >] }>(
+                id,
                 paste! { ::dxl_packet::send:: [< $id:camel >] ::new() },
             )
             .await
@@ -78,32 +54,38 @@ macro_rules! control_table_methods {
     ($id:ident) => {
         paste! {
             #[inline]
-            pub async fn [< read_ $id:snake >]<const ID: u8>(
+            pub async fn [< read_ $id:snake >](
                 &mut self,
+                id: u8,
             ) -> Result<::dxl_packet::recv::Read<::dxl_packet::control_table::$id>, Error<C, ::dxl_packet::recv::Read<::dxl_packet::control_table::$id>>> {
-                self.comm::<ID, ::dxl_packet::send::Read<::dxl_packet::control_table::$id>>(
+                self.comm::<::dxl_packet::send::Read<::dxl_packet::control_table::$id>>(
+                    id,
                     ::dxl_packet::send::Read::<::dxl_packet::control_table::$id>::new()
                 )
                 .await
             }
 
             #[inline]
-            pub async fn [< write_ $id:snake >]<const ID: u8>(
+            pub async fn [< write_ $id:snake >](
                 &mut self,
+                id: u8,
                 bytes: [u8; <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize]
             ) -> Result<::dxl_packet::recv::Write, Error<C, ::dxl_packet::recv::Write>> {
-                self.comm::<ID, ::dxl_packet::send::Write<::dxl_packet::control_table::$id>>(
+                self.comm::<::dxl_packet::send::Write<::dxl_packet::control_table::$id>>(
+                    id,
                     ::dxl_packet::send::Write::<::dxl_packet::control_table::$id>::new(bytes)
                 )
                 .await
             }
 
             #[inline]
-            pub async fn [< reg_write_ $id:snake >]<const ID: u8>(
+            pub async fn [< reg_write_ $id:snake >](
                 &mut self,
+                id: u8,
                 bytes: [u8; <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize]
             ) -> Result<::dxl_packet::recv::RegWrite, Error<C, ::dxl_packet::recv::RegWrite>> {
-                self.comm::<ID, ::dxl_packet::send::RegWrite<::dxl_packet::control_table::$id>>(
+                self.comm::<::dxl_packet::send::RegWrite<::dxl_packet::control_table::$id>>(
+                    id,
                     ::dxl_packet::send::RegWrite::<::dxl_packet::control_table::$id>::new(bytes)
                 )
                 .await
@@ -136,8 +118,9 @@ impl<C: Comm> Bus<C> {
     }
 
     #[inline]
-    pub async fn comm<const ID: u8, Insn: ::dxl_packet::Instruction>(
+    pub async fn comm<Insn: ::dxl_packet::Instruction>(
         &mut self,
+        id: u8,
         parameters: Insn,
     ) -> Result<Insn::Recv, Error<C, Insn::Recv>>
     where
@@ -145,14 +128,17 @@ impl<C: Comm> Bus<C> {
         [(); { core::mem::size_of::<Insn>() as u16 + 3 } as usize]:,
     {
         let mut stream = {
-            let packet = ::dxl_packet::packet::new::<Insn, ID>(parameters);
+            let packet = ::dxl_packet::packet::new::<Insn>(id, parameters);
             self.comm
                 .comm(packet.as_buffer())
                 .await
                 .map_err(crate::IoError::Send)
                 .map_err(Error::Io)?
         };
-        let mut state: ::dxl_packet::packet::recv::Persistent::<Insn, ID> = <::dxl_packet::packet::recv::Persistent::<Insn, ID> as ::dxl_packet::parse::State<_>>::INIT;
+        let mut state: ::dxl_packet::packet::recv::Persistent<Insn> =
+            <::dxl_packet::packet::recv::Persistent<Insn> as New>::new(
+                PersistentConfig { expected_id: id },
+            );
         loop {
             let byte: u8 = ::dxl_packet::stream::Stream::next(&mut stream)
                 .await

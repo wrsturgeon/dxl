@@ -10,23 +10,6 @@ pub enum RecvError {
     Uart(uart::Error),
 }
 
-/*
-impl defmt::Format for RecvError {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::TimedOut(ref e) => {
-                write!(f, "Timed out while waiting for a serial response: {e}")
-            }
-            Self::Uart(ref e) => write!(
-                f,
-                "UART error while trying to receive a serial response: {e:?}"
-            ),
-        }
-    }
-}
-*/
-
 pub(crate) struct RxStream<'lock, 'uart, HardwareUart: uart::Instance> {
     uart: &'lock mut Uart<'uart, HardwareUart, uart::Async>,
 }
@@ -70,27 +53,3 @@ impl<'lock, 'uart, HardwareUart: uart::Instance> crate::Stream
         }
     }
 }
-
-/*
-impl<'lock, 'uart, HardwareUart: uart::Instance> Drop for RxStream<'lock, 'uart, HardwareUart> {
-    #[inline]
-    fn drop(&mut self) {
-        use core::{pin::pin, task};
-
-        loop {
-            match pin!(self.next_without_timeout())
-                .poll(&mut task::Context::from_waker(task::Waker::noop()))
-            {
-                task::Poll::Ready(Ok(byte)) => {
-                    defmt::error!("Extraneous byte: `x{=u8:X}`", byte);
-                }
-                task::Poll::Ready(Err(e)) => {
-                    defmt::error!("Error while clearing an RX stream: {}", e)
-                }
-                task::Poll::Pending =>
-                    return,
-            }
-        }
-    }
-}
-*/

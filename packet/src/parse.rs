@@ -1,25 +1,36 @@
-use core::{convert::Infallible, marker::PhantomData, mem::MaybeUninit};
+use {
+    crate::New,
+    core::{convert::Infallible, marker::PhantomData, mem::MaybeUninit},
+};
 
 pub trait MaybeParse<Input, Output>: Sized {
     type Parser: State<Input, Output = Output>;
-    const INIT: Status<Output, Self::Parser>;
+    fn init() -> Status<Output, Self::Parser>;
 }
 
 pub struct DontRun {
     _uninstantiable: Infallible,
 }
 impl<Input> MaybeParse<Input, ()> for DontRun {
-    type Parser = Infallible;
-    const INIT: Status<(), Self::Parser> = Status::Complete(());
+    type Parser = ();
+
+    #[inline(always)]
+    fn init() -> Status<(), Self::Parser> {
+        Status::Complete(())
+    }
 }
 
 pub struct Run<S> {
     _uninstantiable: Infallible,
     _phantom: PhantomData<S>,
 }
-impl<Input, S: State<Input>> MaybeParse<Input, S::Output> for Run<S> {
+impl<Input, S: State<Input, Config = ()>> MaybeParse<Input, S::Output> for Run<S> {
     type Parser = S;
-    const INIT: Status<S::Output, Self::Parser> = Status::Incomplete(S::INIT);
+
+    #[inline(always)]
+    fn init() -> Status<S::Output, Self::Parser> {
+        Status::Incomplete(S::new(()))
+    }
 }
 
 pub enum Status<Output, SideEffect> {
@@ -27,12 +38,10 @@ pub enum Status<Output, SideEffect> {
     Incomplete(SideEffect),
 }
 
-pub trait State<Input>: Sized {
+pub trait State<Input>: New + Sized {
     type Output;
     type SideEffect;
     type Error: defmt::Format;
-
-    const INIT: Self;
 
     #[expect(clippy::type_complexity, reason = "grow up")]
     fn push(
@@ -41,13 +50,12 @@ pub trait State<Input>: Sized {
     ) -> Result<Status<Self::Output, (Self, Self::SideEffect)>, Self::Error>;
 }
 
-impl<Input> State<Input> for Infallible {
+impl<Input> State<Input> for () {
     type Output = ();
     type SideEffect = Infallible;
     type Error = Infallible;
-    const INIT: Self = unsafe { core::hint::unreachable_unchecked() };
     #[inline(always)]
-    fn push(self, _: Input) -> Result<Status<(), (Infallible, Infallible)>, Infallible> {
+    fn push(self, _: Input) -> Result<Status<(), ((), Infallible)>, Infallible> {
         unsafe { core::hint::unreachable_unchecked() }
     }
 }
@@ -56,12 +64,19 @@ pub struct ParseU16 {
     first_byte: Option<u8>,
 }
 
+impl New for ParseU16 {
+    type Config = ();
+
+    #[inline(always)]
+    fn new((): ()) -> Self {
+        Self { first_byte: None }
+    }
+}
+
 impl State<u8> for ParseU16 {
     type Output = u16;
     type SideEffect = ();
     type Error = Infallible;
-
-    const INIT: Self = Self { first_byte: None };
 
     #[inline]
     fn push(
@@ -85,19 +100,14 @@ pub enum ItemResultError<ItemError: defmt::Format, ParseError: defmt::Format> {
     Parsing(ParseError),
 }
 
-/*
-impl<ItemError: defmt::Format, ParseError: defmt::Format> defmt::Format
-    for ItemResultError<ItemError, ParseError>
-{
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Item(ref e) => write!(f, "Error reported in input stream: {e}"),
-            Self::Parsing(ref e) => write!(f, "Error while parsing: {e}"),
-        }
+impl<Input, S: State<Input>> New for ItemResult<Input, S> {
+    type Config = S::Config;
+
+    #[inline(always)]
+    fn new(config: Self::Config) -> Self {
+        Self(S::new(config), PhantomData)
     }
 }
-*/
 
 impl<Input, S: State<Input>, ItemError: defmt::Format> State<Result<Input, ItemError>>
     for ItemResult<Input, S>
@@ -105,8 +115,6 @@ impl<Input, S: State<Input>, ItemError: defmt::Format> State<Result<Input, ItemE
     type Output = S::Output;
     type SideEffect = S::SideEffect;
     type Error = ItemResultError<ItemError, S::Error>;
-
-    const INIT: Self = Self(S::INIT, PhantomData);
 
     #[inline]
     fn push(
@@ -133,15 +141,22 @@ pub struct ByteArray<const N: usize> {
     buffer: [MaybeUninit<u8>; N],
 }
 
+impl<const N: usize> New for ByteArray<N> {
+    type Config = ();
+
+    #[inline(always)]
+    fn new((): ()) -> Self {
+        Self {
+            index: 0,
+            buffer: [MaybeUninit::uninit(); N],
+        }
+    }
+}
+
 impl<const N: usize> State<u8> for ByteArray<N> {
     type Output = [u8; N];
     type SideEffect = ();
     type Error = Infallible;
-
-    const INIT: Self = Self {
-        index: 0,
-        buffer: [MaybeUninit::uninit(); N],
-    };
 
     #[inline]
     fn push(
@@ -181,7 +196,7 @@ mod test {
     fn parse_u16(i: u16) -> TestResult {
         let little_endian = i.to_le_bytes();
         let mut s = stream::WithLog(stream::Loop::new(&little_endian));
-        let mut state = ParseU16::INIT;
+        let mut state = ParseU16::init();
         loop {
             let input = match pin!(s.next())
                 .poll(&mut const { task::Context::from_waker(task::Waker::noop()) })

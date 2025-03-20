@@ -46,19 +46,7 @@ pub type FactoryReset = ();
 pub type Reboot = ();
 
 #[non_exhaustive]
-#[cfg_attr(
-    test,
-    derive(
-        Clone,
-        Copy,
-        Debug,
-        Eq,
-        Ord,
-        PartialEq,
-        PartialOrd,
-        strum_macros::VariantArray
-    )
-)]
+#[cfg_attr(test, derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd,))]
 pub struct HardwareErrorStatus {
     input_voltage: bool,
     overheat: bool,
@@ -147,7 +135,7 @@ impl HardwareErrorStatus {
 
 mod parse {
     use {
-        crate::{control_table, parse},
+        crate::{control_table, parse, New},
         core::convert::Infallible,
     };
 
@@ -155,14 +143,20 @@ mod parse {
         model_number_lo: Option<u8>,
         model_number_hi: Option<u8>,
     }
+    impl New for Ping {
+        type Config = ();
+        #[inline(always)]
+        fn new((): ()) -> Self {
+            Self {
+                model_number_lo: None,
+                model_number_hi: None,
+            }
+        }
+    }
     impl parse::State<u8> for Ping {
         type Output = super::Ping;
         type SideEffect = ();
         type Error = Infallible;
-        const INIT: Self = Self {
-            model_number_lo: None,
-            model_number_hi: None,
-        };
         #[inline(always)]
         fn push(
             mut self,
@@ -188,6 +182,16 @@ mod parse {
     pub struct Read<Address: control_table::Item>(parse::ByteArray<{ Address::BYTES as usize }>)
     where
         [(); Address::BYTES as usize]:;
+    impl<Address: control_table::Item> New for Read<Address>
+    where
+        [(); Address::BYTES as usize]:,
+    {
+        type Config = <parse::ByteArray<{ Address::BYTES as usize }> as New>::Config;
+        #[inline(always)]
+        fn new(config: Self::Config) -> Self {
+            Self(parse::ByteArray::new(config))
+        }
+    }
     impl<Address: control_table::Item> parse::State<u8> for Read<Address>
     where
         [(); Address::BYTES as usize]:,
@@ -195,7 +199,6 @@ mod parse {
         type Output = super::Read<Address>;
         type SideEffect = ();
         type Error = Infallible;
-        const INIT: Self = Self(parse::ByteArray::INIT);
         #[inline(always)]
         fn push(
             self,
@@ -212,89 +215,3 @@ mod parse {
         }
     }
 }
-
-/*
-pub(crate) mod packed {
-use {core::convert::Infallible, crate::{control_table, parse}};
-
-#[repr(C, packed)]
-pub struct Ping {
-    pub model_number: u16,
-    pub firmware_version: u8,
-}
-pub struct ParsePing {
-    model_number_lo: Option<u8>,
-    model_number_hi: Option<u8>,
-}
-impl parse::State<u8> for ParsePing {
-    type Output = Ping;
-    type SideEffect = ();
-    type Error = Infallible;
-    const INIT: Self = Self {
-        model_number_lo: None,
-        model_number_hi: None,
-    };
-    #[inline(always)]
-    fn push(
-        mut self,
-        input: u8,
-    ) -> Result<parse::Status<Self::Output, (Self, Self::SideEffect)>, Self::Error> {
-        Ok(if let Some(lo) = self.model_number_lo {
-            if let Some(hi) = self.model_number_hi {
-                parse::Status::Complete(Self::Output {
-                    model_number: u16::from_le_bytes([lo, hi]),
-                    firmware_version: input,
-                })
-            } else {
-                self.model_number_hi = Some(input);
-                parse::Status::Incomplete((self, ()))
-            }
-        } else {
-            self.model_number_lo = Some(input);
-            parse::Status::Incomplete((self, ()))
-        })
-    }
-}
-
-#[repr(C, packed)]
-pub struct Read<Address: control_table::Item>
-where
-    [(); Address::BYTES as usize]:,
-{
-    pub bytes: [u8; Address::BYTES as usize],
-}
-pub struct ParseRead<Address: control_table::Item>(parse::ByteArray<{ Address::BYTES as usize }>)
-where
-    [(); Address::BYTES as usize]:;
-impl<Address: control_table::Item> parse::State<u8> for ParseRead<Address>
-where
-    [(); Address::BYTES as usize]:,
-{
-    type Output = Read<Address>;
-    type SideEffect = ();
-    type Error = Infallible;
-    const INIT: Self = Self(parse::ByteArray::INIT);
-    #[inline(always)]
-    fn push(
-        self,
-        input: u8,
-    ) -> Result<parse::Status<Self::Output, (Self, Self::SideEffect)>, Self::Error> {
-        let Self(internal) = self;
-        let Ok(status) = internal.push(input);
-        Ok(match status {
-            parse::Status::Incomplete((updated, ())) => {
-                parse::Status::Incomplete((Self(updated), ()))
-            }
-            parse::Status::Complete(bytes) => parse::Status::Complete(Self::Output { bytes }),
-        })
-    }
-}
-
-pub type Write = ();
-pub type RegWrite = ();
-pub type Action = ();
-pub type FactoryReset = ();
-pub type Reboot = ();
-
-}
-*/

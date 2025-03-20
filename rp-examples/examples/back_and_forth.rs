@@ -134,9 +134,6 @@ async fn main(spawner: Spawner) {
     let mut next = Instant::now();
     let mut state = true;
     loop {
-        // let () = control.gpio_set(0, state).await;
-        // defmt::info!("{}", state);
-
         let () = match actuator.go_to(if state { 1. } else { 0. }).await {
             Ok(()) => {}
             Err(e) => defmt::error!("Error writing Dynamixel goal position: {}", e),

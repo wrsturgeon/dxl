@@ -24,10 +24,9 @@ use {
     pull_high::PullHigh,
 };
 
-// TODO: CHANGE
-const TIMEOUT_LOCK: Duration = Duration::from_millis(1000);
-const TIMEOUT_SEND: Duration = Duration::from_millis(100);
-const TIMEOUT_RECV: Duration = Duration::from_millis(100);
+const TIMEOUT_LOCK: Duration = Duration::from_millis(100);
+const TIMEOUT_SEND: Duration = Duration::from_millis(10);
+const TIMEOUT_RECV: Duration = Duration::from_millis(10);
 
 #[inline]
 #[expect(
@@ -151,7 +150,6 @@ impl<Item> dxl_driver::mutex::Mutex for Mutex<Item> {
     #[inline(always)]
     async fn lock(&self) -> Result<impl DerefMut<Target = Self::Item>, Self::Error> {
         let start = Instant::now();
-        // with_timeout(TIMEOUT_LOCK, self.0.lock()).await
         loop {
             if let Ok(ok) = self.0.try_lock() {
                 return Ok(ok);
@@ -164,9 +162,8 @@ impl<Item> dxl_driver::mutex::Mutex for Mutex<Item> {
     }
 }
 
-pub type Actuator<'tx_en, 'uart, 'bus, const ID: u8, HardwareUart> = dxl_driver::actuator::Actuator<
+pub type Actuator<'tx_en, 'uart, 'bus, HardwareUart> = dxl_driver::actuator::Actuator<
     'bus,
-    ID,
     Comm<'tx_en, 'uart, HardwareUart>,
     Mutex<Bus<Comm<'tx_en, 'uart, HardwareUart>>>,
 >;

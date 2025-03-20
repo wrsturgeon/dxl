@@ -130,42 +130,5 @@ async fn main(spawner: Spawner) {
     defmt::info!(" 28: {}", bus.ping::<28>().await);
     defmt::info!(" 29: {}", bus.ping::<29>().await);
 
-    /*
-    let mut actuator = {
-        let mut maybe_uninit = MaybeUninit::uninit();
-        'actuator: loop {
-            match Actuator::<DXL_ID, _>::init_unconfigured(&dxl_bus, "Low-Baud Boring Loser")
-                .await
-            {
-                Ok(ok) => {
-                    maybe_uninit.write(ok);
-                    break 'actuator;
-                }
-                Err(e) => defmt::error!(
-                    "Error initializing Dynamixel ID {}: {}; retrying...",
-                    DXL_ID,
-                    e,
-                ),
-            }
-            let () = Timer::after(Duration::from_secs(1)).await;
-        }
-        unsafe { maybe_uninit.assume_init() }
-    };
-
-    'torque: loop {
-        match actuator.torque_off().await {
-            Ok(()) => break 'torque,
-            Err(e) => defmt::error!("Error disabling torque for Dynamixel ID {}: {}; retrying...", DXL_ID, e,),
-        }
-    }
-
-    'baud: loop {
-        match actuator.write_baud_rate(INTENDED_BAUD as u8).await {
-            Ok(()) => break 'baud,
-            Err(e) => defmt::error!("Error updating baud rate of Dynamixel ID {}: {}; retrying...", DXL_ID, e,),
-        }
-    }
-    */
-
     defmt::info!("done; halting.");
 }

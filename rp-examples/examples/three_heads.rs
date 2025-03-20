@@ -38,24 +38,24 @@ const UDP_TX_BUFFER_SIZE: usize = 256;
 const UDP_RX_META_SIZE: usize = 256;
 const UDP_TX_META_SIZE: usize = 256;
 
-async fn persistent_actuator_init<'tx_en, 'uart, 'bus, const ID: u8>(
+async fn persistent_actuator_init<'tx_en, 'uart, 'bus>(
     description: &'static str,
     dxl_bus: &'bus Mutex<Bus<Comm<'tx_en, 'uart, UART0>>>,
-) -> Actuator<'tx_en, 'uart, 'bus, ID, UART0> {
+) -> Actuator<'tx_en, 'uart, 'bus, UART0> {
     defmt::debug!(
         "Running `persistent_actuator_init` for \"{}\"...",
         description
     );
     loop {
         defmt::debug!("Calling `init_at_position` for \"{}\"...", description);
-        match Actuator::<ID, _>::init_at_position(dxl_bus, description, 0.5, 0.001).await {
+        match Actuator::init_at_position(dxl_bus, description, 0.5, 0.001).await {
             Ok(ok) => {
                 defmt::debug!("`init_at_position` succeeded for \"{}\"", description);
                 return ok;
             }
             Err(e) => defmt::error!(
                 "Error initializing Dynamixel ID {} (\"{}\"): {}; retrying...",
-                ID,
+                id,
                 description,
                 e
             ),

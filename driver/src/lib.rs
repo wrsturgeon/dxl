@@ -30,18 +30,6 @@ pub enum BusError<C: comm::Comm, M: mutex::Mutex, Output> {
     Packet(bus::Error<C, Output>),
 }
 
-/*
-impl<C: comm::Comm, M: mutex::Mutex, X> BusError<C, M, X> {
-    #[inline]
-    pub fn map<Y, F: FnOnce(X) -> Y>(self, f: F) -> BusError<C, M, Y> {
-        match self {
-            Self::Mutex(e) => BusError::Mutex(e),
-            Self::Packet(e) => BusError::Packet(e.map(f)),
-        }
-    }
-}
-*/
-
 impl<C: comm::Comm, M: mutex::Mutex, Output> defmt::Format for BusError<C, M, Output> {
     #[inline]
     fn format(&self, f: defmt::Formatter) {

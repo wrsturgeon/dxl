@@ -32,40 +32,6 @@ const BAUD: u32 = 1_000_000;
 
 const CYW43_POWER_MANAGEMENT: cyw43::PowerManagementMode = cyw43::PowerManagementMode::None; // cyw43::PowerManagementMode::PowerSave;
 
-/*
-struct SmolBuffer {
-    bytes: [u8; 255],
-    size: u8,
-    updated: bool,
-}
-
-impl SmolBuffer {
-    #[inline]
-    pub const fn new() -> Self {
-        Self {
-            bytes: [0; 255],
-            size: 0,
-            updated: false,
-        }
-    }
-
-    #[inline]
-    pub fn read(&mut self) -> Option<&[u8]> {
-        if self.updated {
-            self.updated = false;
-            Some(&self.bytes[..self.size as usize])
-        } else { None }
-    }
-
-    #[inline]
-    pub fn set(&mut self, buffer: &[u8]) {
-        self.size = buffer.len().try_into().unwrap_or(255);
-        let () = (&mut self.bytes[..self.size as usize]).copy_from_slice(buffer);
-        self.updated = true;
-    }
-}
-*/
-
 const UDP_BUFFER_SIZE: usize = 256;
 const UDP_RX_BUFFER_SIZE: usize = 256;
 const UDP_TX_BUFFER_SIZE: usize = 256;
