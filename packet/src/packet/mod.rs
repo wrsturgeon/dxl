@@ -15,7 +15,12 @@ where
                 let init_ptr = &without_crc as *const _ as *const u8;
                 unsafe { init_ptr.byte_offset(4) }
             };
-            unsafe { core::slice::from_raw_parts(ptr, const { core::mem::size_of::<send::WithoutCrc<Insn>>() - 4 }) }
+            unsafe {
+                core::slice::from_raw_parts(
+                    ptr,
+                    const { core::mem::size_of::<send::WithoutCrc<Insn>>() - 4 },
+                )
+            }
         });
         crc_state.collapse().to_le_bytes()
     };
