@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["driver", "packet", "rp", "rp-examples"]
+members = ["driver", "host-examples", "packet", "rp", "rp-examples"]
 
 [profile.release]
 lto = true

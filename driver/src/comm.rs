@@ -8,5 +8,6 @@ pub trait Comm {
         &'rx mut self,
         buffer: &[u8],
     ) -> Result<impl 'rx + Stream<Item = Result<u8, Self::RecvError>>, Self::SendError>;
+    fn set_baud(&mut self, baud: u32);
     async fn yield_to_other_tasks();
 }

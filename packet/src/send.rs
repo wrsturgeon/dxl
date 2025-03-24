@@ -50,7 +50,7 @@ where
 {
     const BYTE: u8 = 0x02;
     const GERUND: &str = "Reading";
-    type Recv = recv::Read<Address>;
+    type Recv = recv::Read<{ Address::BYTES as usize }>;
 }
 
 #[repr(C, packed)]

@@ -19,24 +19,6 @@ impl<'lock, 'uart, HardwareUart: uart::Instance> RxStream<'lock, 'uart, Hardware
     pub const fn new(uart: &'lock mut Uart<'uart, HardwareUart, uart::Async>) -> Self {
         Self { uart }
     }
-
-    #[inline]
-    pub async fn next_without_timeout(&mut self) -> Result<u8, uart::Error> {
-        let mut byte: u8 = 0;
-        let ptr = {
-            let single: *mut u8 = &mut byte;
-            let multiple: *mut [u8; 1] = single.cast();
-            unsafe { &mut *multiple }
-        };
-        loop {
-            match self.uart.read(ptr).await {
-                Ok(()) => return Ok(byte),
-                Err(uart::Error::Break) => defmt::warn!("UART break"),
-                Err(e) => return Err(e),
-            }
-            let () = yield_now().await;
-        }
-    }
 }
 
 impl<'lock, 'uart, HardwareUart: uart::Instance> crate::Stream
@@ -46,10 +28,22 @@ impl<'lock, 'uart, HardwareUart: uart::Instance> crate::Stream
 
     #[inline(always)]
     async fn next(&mut self) -> Self::Item {
-        match with_timeout(crate::TIMEOUT_RECV, self.next_without_timeout()).await {
-            Ok(Ok(ok)) => Ok(ok),
-            Ok(Err(e)) => Err(RecvError::Uart(e)),
-            Err(e) => Err(RecvError::TimedOut(e)),
+        let mut byte: u8 = 0;
+        let ptr = {
+            let single: *mut u8 = &mut byte;
+            let multiple: *mut [u8; 1] = single.cast();
+            unsafe { &mut *multiple }
+        };
+        loop {
+            match with_timeout(crate::TIMEOUT_RECV, self.uart.read(ptr))
+                .await
+                .map_err(RecvError::TimedOut)?
+            {
+                Ok(()) => return Ok(byte),
+                Err(uart::Error::Break) => defmt::warn!("UART break"),
+                Err(e) => return Err(RecvError::Uart(e)),
+            }
+            let () = yield_now().await;
         }
     }
 }

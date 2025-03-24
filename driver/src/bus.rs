@@ -29,7 +29,7 @@ pub enum IdError {
 pub struct Bus<C: Comm> {
     comm: C,
     #[cfg(debug_assertions)]
-    used_ids: [bool; 252],
+    used_ids: [bool; dxl_packet::N_IDS as usize],
 }
 
 macro_rules! instruction_method {
@@ -61,7 +61,7 @@ macro_rules! control_table_methods {
             pub async fn [< read_ $id:snake >](
                 &mut self,
                 id: u8,
-            ) -> Result<::dxl_packet::recv::Read<::dxl_packet::control_table::$id>, Error<C, ::dxl_packet::recv::Read<::dxl_packet::control_table::$id>>> {
+            ) -> Result<::dxl_packet::recv::Read<{ <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize }>, Error<C, ::dxl_packet::recv::Read<{ <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize }>>> {
                 self.comm::<::dxl_packet::send::Read<::dxl_packet::control_table::$id>>(
                     id,
                     ::dxl_packet::send::Read::<::dxl_packet::control_table::$id>::new()
@@ -104,7 +104,7 @@ impl<C: Comm> Bus<C> {
         Self {
             comm,
             #[cfg(debug_assertions)]
-            used_ids: [false; 252],
+            used_ids: [false; dxl_packet::N_IDS as usize],
         }
     }
 
@@ -119,6 +119,11 @@ impl<C: Comm> Bus<C> {
         }
         *state = true;
         Ok(())
+    }
+
+    #[inline(always)]
+    pub fn set_baud(&mut self, baud: u32) {
+        self.comm.set_baud(baud)
     }
 
     #[inline]
@@ -146,8 +151,7 @@ impl<C: Comm> Bus<C> {
         loop {
             let byte: u8 = ::dxl_packet::stream::Stream::next(&mut stream)
                 .await
-                .map_err(crate::IoError::Recv)
-                .map_err(Error::Io)?;
+                .map_err(|e| Error::Io(crate::IoError::Recv(e)))?;
             state = match ::dxl_packet::parse::State::push(state, byte).map_err(Error::Packet)? {
                 ::dxl_packet::parse::Status::Complete(complete) => return Ok(complete),
                 ::dxl_packet::parse::Status::Incomplete((updated, ())) => updated,

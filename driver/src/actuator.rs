@@ -36,7 +36,7 @@ macro_rules! instruction_method {
         > {
             #[cfg(debug_assertions)]
             {
-                paste! { defmt::debug!("{} {}...", <::dxl_packet::send::[< $id:camel >] as ::dxl_packet::Instruction>::GERUND, self) };
+                paste! { defmt::trace!("{} {}...", <::dxl_packet::send::[< $id:camel >] as ::dxl_packet::Instruction>::GERUND, self) };
             }
             let result = {
                 let mut lock = self.bus.lock().await.map_err(crate::ActuatorError::Mutex)?;
@@ -60,7 +60,7 @@ macro_rules! control_table_methods {
             ) -> Result<[< u $bits >], $crate::ActuatorError<C, M>> {
                 #[cfg(debug_assertions)]
                 {
-                    defmt::debug!("Reading {}'s {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION);
+                    defmt::trace!("Reading {}'s {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION);
                 }
                 let result = {
                     let mut lock = self.bus.lock().await.map_err(crate::ActuatorError::Mutex)?;
@@ -72,7 +72,7 @@ macro_rules! control_table_methods {
                         let uint = [< u $bits >]::from_le_bytes(bytes);
                         #[cfg(debug_assertions)]
                         {
-                            defmt::debug!("    --> {}'s {} is {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, uint);
+                            defmt::trace!("    --> {}'s {} is {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, uint);
                         }
                         Ok(uint)
                     }
@@ -86,7 +86,7 @@ macro_rules! control_table_methods {
             ) -> Result<(), $crate::ActuatorError<C, M>> {
                 #[cfg(debug_assertions)]
                 {
-                    defmt::debug!("Writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                    defmt::trace!("Writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
                 }
                 let bytes = value.to_le_bytes();
                 let result = {
@@ -98,7 +98,7 @@ macro_rules! control_table_methods {
                     Ok(()) => {
                         #[cfg(debug_assertions)]
                         {
-                            defmt::debug!("    --> updated {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                            defmt::trace!("    --> updated {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
                         }
                         Ok(())
                     }
@@ -112,7 +112,7 @@ macro_rules! control_table_methods {
             ) -> Result<(), $crate::ActuatorError<C, M>> {
                 #[cfg(debug_assertions)]
                 {
-                    defmt::debug!("Register-writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                    defmt::trace!("Register-writing {}'s {} to {}...", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
                 }
                 let bytes = value.to_le_bytes();
                 let result = {
@@ -124,7 +124,7 @@ macro_rules! control_table_methods {
                     Ok(()) => {
                         #[cfg(debug_assertions)]
                         {
-                            defmt::debug!("    --> registered an update of {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
+                            defmt::trace!("    --> registered an update of {}'s {} to {}", self, <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::DESCRIPTION, value);
                         }
                         Ok(())
                     }
@@ -310,7 +310,7 @@ impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, C, M> {
                 Err(crate::ActuatorError::Packet(crate::actuator::Error::Software(
                     ::dxl_packet::packet::recv::SoftwareError::DataRangeError,
                 ))) => {
-                    defmt::debug!(
+                    defmt::trace!(
                         "Maximum velocity of `{}` is too much for ID {} (\"{}\"); cutting in half...",
                         max,
                         id,
@@ -402,7 +402,7 @@ impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, C, M> {
         match error_including_hardware {
             ::dxl_packet::packet::recv::PersistentError::Software(e) => Error::Software(e),
             ::dxl_packet::packet::recv::PersistentError::Hardware(..) => {
-                defmt::debug!("Hardware error reported for {}; reading it...", self);
+                defmt::trace!("Hardware error reported for {}; reading it...", self);
                 let hardware_error = {
                     let result = match self.bus.lock().await {
                         Ok(mut lock) => lock
@@ -449,8 +449,8 @@ impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, C, M> {
                         };
                         match torque_result {
                             Ok(()) => break 'torque_on,
-                            Err(crate::BusError::Mutex(e)) => defmt::debug!("Still waiting to enable torque for {}: {}; probably still rebooting", self, e),
-                            Err(crate::BusError::Packet(crate::bus::Error::Io(e))) => defmt::debug!("Still waiting to enable torque for {}: {}; probably still rebooting", self, e),
+                            Err(crate::BusError::Mutex(e)) => defmt::trace!("Still waiting to enable torque for {}: {}; probably still rebooting", self, e),
+                            Err(crate::BusError::Packet(crate::bus::Error::Io(e))) => defmt::trace!("Still waiting to enable torque for {}: {}; probably still rebooting", self, e),
                             Err(e) => defmt::error!("Couldn't enable torque for {}: {}", self, e),
                         }
                         let () = C::yield_to_other_tasks().await;
@@ -565,7 +565,7 @@ impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> Actuator<'bus, C, M> {
         loop {
             let actual_position = self.pos().await.map_err(FollowToError::Position)?;
             if (position - actual_position).abs() <= tolerance {
-                defmt::debug!(
+                defmt::trace!(
                     "Dynamixel #{} reached its goal position ({})",
                     self.id,
                     position

@@ -1,5 +1,3 @@
-use crate::control_table;
-
 pub trait Receive: Sized + defmt::Format {
     const BYTES: usize;
     type Parser: crate::parse::MaybeParse<u8, Self>;
@@ -24,19 +22,13 @@ impl Receive for Ping {
 
 #[derive(defmt::Format)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub struct Read<Address: control_table::Item>
-where
-    [(); Address::BYTES as usize]:,
-{
-    pub bytes: [u8; Address::BYTES as usize],
+pub struct Read<const BYTES: usize> {
+    pub bytes: [u8; BYTES],
 }
 
-impl<Address: control_table::Item> Receive for Read<Address>
-where
-    [(); Address::BYTES as usize]:,
-{
-    const BYTES: usize = Address::BYTES as usize;
-    type Parser = crate::parse::Run<parse::Read<Address>>;
+impl<const BYTES: usize> Receive for Read<BYTES> {
+    const BYTES: usize = BYTES;
+    type Parser = crate::parse::Run<parse::Read<BYTES>>;
 }
 
 pub type Write = ();
@@ -135,7 +127,7 @@ impl HardwareErrorStatus {
 
 mod parse {
     use {
-        crate::{control_table, parse, New},
+        crate::{parse, New},
         core::convert::Infallible,
     };
 
@@ -179,24 +171,16 @@ mod parse {
         }
     }
 
-    pub struct Read<Address: control_table::Item>(parse::ByteArray<{ Address::BYTES as usize }>)
-    where
-        [(); Address::BYTES as usize]:;
-    impl<Address: control_table::Item> New for Read<Address>
-    where
-        [(); Address::BYTES as usize]:,
-    {
-        type Config = <parse::ByteArray<{ Address::BYTES as usize }> as New>::Config;
+    pub struct Read<const BYTES: usize>(parse::ByteArray<BYTES>);
+    impl<const BYTES: usize> New for Read<BYTES> {
+        type Config = <parse::ByteArray<BYTES> as New>::Config;
         #[inline(always)]
         fn new(config: Self::Config) -> Self {
             Self(parse::ByteArray::new(config))
         }
     }
-    impl<Address: control_table::Item> parse::State<u8> for Read<Address>
-    where
-        [(); Address::BYTES as usize]:,
-    {
-        type Output = super::Read<Address>;
+    impl<const BYTES: usize> parse::State<u8> for Read<BYTES> {
+        type Output = super::Read<BYTES>;
         type SideEffect = ();
         type Error = Infallible;
         #[inline(always)]

@@ -20,13 +20,11 @@ use {
         Peripheral,
     },
     embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
-    embassy_time::{with_timeout, Duration, Instant, TimeoutError},
+    embassy_time::{Duration, TimeoutError},
     pull_high::PullHigh,
 };
 
-const TIMEOUT_LOCK: Duration = Duration::from_millis(1000);
-const TIMEOUT_SEND: Duration = Duration::from_millis(1);
-const TIMEOUT_RECV: Duration = Duration::from_millis(1);
+const TIMEOUT_RECV: Duration = Duration::from_millis(2);
 
 #[inline]
 #[expect(
@@ -49,12 +47,6 @@ pub fn bus<'tx_en, 'uart, HardwareUart: uart::Instance>(
     let comm = Comm::new(baud_rate, tx_enable_pin, uart, tx, rx, irq, tx_dma, rx_dma);
     let bus = Bus::new(comm);
     dxl_driver::mutex::Mutex::new(bus)
-}
-
-#[derive(defmt::Format)]
-pub enum Error {
-    Write(uart::Error),
-    WriteTimeout(TimeoutError),
 }
 
 pub struct Comm<'tx_en, 'uart, HardwareUart: uart::Instance> {
@@ -98,7 +90,7 @@ impl<'tx_en, 'uart, HardwareUart: uart::Instance> Comm<'tx_en, 'uart, HardwareUa
 impl<'tx_en, 'uart, HardwareUart: uart::Instance> dxl_driver::comm::Comm
     for Comm<'tx_en, 'uart, HardwareUart>
 {
-    type SendError = Error;
+    type SendError = uart::Error;
     type RecvError = serial::RecvError;
 
     #[inline]
@@ -108,26 +100,30 @@ impl<'tx_en, 'uart, HardwareUart: uart::Instance> dxl_driver::comm::Comm
     ) -> Result<impl 'rx + Stream<Item = Result<u8, Self::RecvError>>, Self::SendError> {
         // Block incoming transmission ONLY WITHIN THIS SCOPE to allow outgoing transmission:
         let enable_tx = PullHigh::new(&mut self.tx_enable);
-        let () = with_timeout(TIMEOUT_SEND, async {
-            // Asynchronously ask hardware to transmit this buffer:
-            let () = self.uart.write(bytes).await?;
-            // Wait until it actually starts transmitting:
-            while !self.uart.busy() {
-                // let () = embassy_futures::yield_now().await;
-            }
-            // Then wait until it finishes:
-            while self.uart.busy() {
-                // let () = embassy_futures::yield_now().await;
-            }
-            Ok(())
-        })
-        .await
-        .map_err(Error::WriteTimeout)?
-        .map_err(Error::Write)?;
+        // Asynchronously ask hardware to transmit this buffer:
+        match self.uart.write(bytes).await {
+            Ok(()) => {}
+            Err(e) => return Err(e),
+        }
+        /*
+        // Wait until it actually starts transmitting:
+        while !self.uart.busy() {
+            // let () = embassy_futures::yield_now().await;
+        }
+        */
+        // Then wait until it finishes:
+        while self.uart.busy() {
+            // let () = embassy_futures::yield_now().await;
+        }
         // Then lower the `tx_enable` pin by dropping `_enable_tx`:
         // NOTE: I'm pretty sure this could be implicit, but this couldn't hurt.
         drop(enable_tx);
         Ok(serial::RxStream::new(&mut self.uart))
+    }
+
+    #[inline(always)]
+    fn set_baud(&mut self, baud: u32) {
+        self.uart.set_baudrate(baud)
     }
 
     #[inline(always)]
@@ -149,6 +145,8 @@ impl<Item> dxl_driver::mutex::Mutex for Mutex<Item> {
 
     #[inline(always)]
     async fn lock(&self) -> Result<impl DerefMut<Target = Self::Item>, Self::Error> {
+        Ok(self.0.lock().await)
+        /*
         let start = Instant::now();
         loop {
             if let Ok(ok) = self.0.try_lock() {
@@ -156,9 +154,11 @@ impl<Item> dxl_driver::mutex::Mutex for Mutex<Item> {
             }
             let () = yield_now().await;
             if start.elapsed() > TIMEOUT_LOCK {
+                defmt::error!("***** MUTEX TIMED OUT *****");
                 return Err(TimeoutError);
             }
         }
+        */
     }
 }
 

@@ -122,8 +122,10 @@ impl<InstructionSpecific: defmt::Format> defmt::Format for ParseError<Instructio
             Self::WrongReservedByte(ref e) => defmt::write!(f, "Wrong reserved byte: {}", e),
             Self::InvalidId { id } => defmt::write!(
                 f,
-                "Invalid ID: {} (must be between 0 and 252, inclusive)",
-                id
+                "Invalid ID: {} (must be between {} and {}, inclusive)",
+                id,
+                crate::MIN_ID,
+                crate::MAX_ID,
             ),
             Self::WrongLength(ref e) => defmt::write!(f, "Wrong length: {}", e),
             Self::WrongInstruction(ref e) => defmt::write!(f, "Wrong instruction: {}", e),
@@ -246,7 +248,7 @@ impl<Insn: Instruction> parse::State<u8> for WithoutCrc<Insn> {
                 Self::Header3 => expect!(0xFD, WrongThirdHeaderByte, Reserved),
                 Self::Reserved => expect!(0x00, WrongReservedByte, Id),
                 Self::Id => {
-                    if input < 253 {
+                    if input >= crate::MIN_ID && input <= crate::MAX_ID {
                         let mut crc_state = const { WithoutCrc::<Insn>::crc_init() };
                         let () = crc_state.push(input);
                         Self::LengthLo {

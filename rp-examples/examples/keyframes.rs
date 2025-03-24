@@ -39,37 +39,6 @@ const UDP_TX_BUFFER_SIZE: usize = 256;
 const UDP_RX_META_SIZE: usize = 256;
 const UDP_TX_META_SIZE: usize = 256;
 
-async fn persistent_actuator_init<'tx_en, 'uart, 'bus>(
-    id: u8,
-    description: &'static str,
-    dxl_bus: &'bus Mutex<Bus<Comm<'tx_en, 'uart, UART0>>>,
-) -> Actuator<'tx_en, 'uart, 'bus, UART0> {
-    defmt::debug!(
-        "Running `persistent_actuator_init` for \"{}\"...",
-        description
-    );
-    loop {
-        defmt::debug!("Calling `init_at_position` for \"{}\"...", description);
-        match Actuator::init_at_position(dxl_bus, id, description, 0.5, 0.001).await {
-            Ok(ok) => {
-                defmt::debug!("`init_at_position` succeeded for \"{}\"", description);
-                return ok;
-            }
-            Err(e) => defmt::error!(
-                "Error initializing Dynamixel ID {} (\"{}\"): {}; retrying...",
-                id,
-                description,
-                e
-            ),
-        }
-        defmt::debug!(
-            "Waiting a second before trying again with \"{}\"...",
-            description
-        );
-        let () = Timer::after(Duration::from_secs(1)).await;
-    }
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     static NET_RESOURCES: StaticCell<embassy_net::StackResources<3>> = StaticCell::new();
@@ -188,103 +157,7 @@ async fn main(spawner: Spawner) {
         BAUD, p.PIN_13, p.UART0, p.PIN_16, p.PIN_17, Irqs, p.DMA_CH1, p.DMA_CH2,
     );
 
-    let ((mut mouth_1, mut mouth_2), mut mouth_3) = join(
-        join(
-            persistent_actuator_init(1, "Mouth #1", &dxl_bus),
-            persistent_actuator_init(2, "Mouth #2", &dxl_bus),
-        ),
-        persistent_actuator_init(3, "Mouth #3", &dxl_bus),
-    )
-    .await;
-
     let mut udp_buffer = [0; UDP_BUFFER_SIZE];
-
-    {
-        #[inline]
-        fn rnd_unit() -> f32 {
-            let uint: u16 = rand_core::RngCore::next_u64(&mut embassy_rp::clocks::RoscRng) as u16;
-            uint as f32 / 65535_f32
-        }
-
-        match mouth_1.write_profile_acceleration(1).await {
-            Ok(()) => {}
-            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_1, e),
-        }
-        match mouth_2.write_profile_acceleration(1).await {
-            Ok(()) => {}
-            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_2, e),
-        }
-        match mouth_3.write_profile_acceleration(1).await {
-            Ok(()) => {}
-            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_3, e),
-        }
-
-        let mut pos_1 = rnd_unit();
-        defmt::info!("Keep-alive: moving {} to {}", mouth_1, pos_1);
-        match mouth_1.go_to(pos_1).await {
-            Err(e) => defmt::error!("Error moving {} to {}: {}", mouth_1, pos_1, e),
-            Ok(()) => {}
-        }
-        let mut pos_2 = rnd_unit();
-        defmt::info!("Keep-alive: moving {} to {}", mouth_2, pos_2);
-        match mouth_2.go_to(pos_2).await {
-            Err(e) => defmt::error!("Error moving {} to {}: {}", mouth_2, pos_2, e),
-            Ok(()) => {}
-        }
-        let mut pos_3 = rnd_unit();
-        defmt::info!("Keep-alive: moving {} to {}", mouth_3, pos_3);
-        match mouth_3.go_to(pos_3).await {
-            Err(e) => defmt::error!("Error moving {} to {}: {}", mouth_3, pos_3, e),
-            Ok(()) => {}
-        }
-
-        let mut next = Instant::now();
-
-        // Keep-alive animation while we're waiting for our first packet:
-        'keep_alive: loop {
-            macro_rules! per_actuator {
-                ($id:tt) => { paste! {
-                    match [< mouth_ $id >].pos().await {
-                        Err(e) => paste! { defmt::error!("Error reading position of {}: {}", [< mouth_ $id >], e) },
-                        Ok(actual_position) => {
-                            if (actual_position - [< pos_ $id >]).abs() < 0.01 {
-                                [< pos_ $id >] = rnd_unit();
-                                defmt::info!("Keep-alive: moving {} to {}", [< mouth_ $id >], [< pos_ $id >]);
-                                match [< mouth_ $id >].go_to([< pos_ $id >]).await {
-                                    Err(e) => defmt::error!("Error moving {} to {}: {}", [< mouth_ $id >], [< pos_ $id >], e),
-                                    Ok(()) => {}
-                                }
-                            }
-                        }
-                    }
-                } }
-            }
-
-            per_actuator!(1);
-            per_actuator!(2);
-            per_actuator!(3);
-
-            if socket.may_recv() {
-                break 'keep_alive;
-            }
-
-            next += Duration::from_millis(20);
-            let () = Timer::at(next).await;
-        }
-
-        match mouth_1.reset_acceleration_profile().await {
-            Ok(()) => {}
-            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_1, e),
-        }
-        match mouth_2.reset_acceleration_profile().await {
-            Ok(()) => {}
-            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_2, e),
-        }
-        match mouth_3.reset_acceleration_profile().await {
-            Ok(()) => {}
-            Err(e) => defmt::error!("Error resetting {}'s acceleration profile: {}", mouth_3, e),
-        }
-    }
 
     'main_loop: loop {
         let (n_bytes, endpoint) = match socket.recv_from(&mut udp_buffer).await {
