@@ -1,4 +1,4 @@
-use {nix::{net::if_::InterfaceFlags, sys::socket::{SockaddrStorage, SockaddrLike as _, AddressFamily}, ifaddrs::{InterfaceAddress, getifaddrs}}, std::net::{Ipv4Addr, UdpSocket}};
+use {std::net::{Ipv4Addr, UdpSocket}};
 
 /*
 fn getaddr() -> SockaddrStorage {
@@ -37,9 +37,18 @@ struct Positions {
     p24: u16,
     p25: u16,
     p26: u16,
+    p31: u16,
+    p32: u16,
+    p33: u16,
+    p34: u16,
+    p35: u16,
+    p36: u16,
     p41: u16,
     p42: u16,
     p43: u16,
+    p44: u16,
+    p45: u16,
+    p46: u16,
 }
 
 fn main() {
@@ -48,7 +57,7 @@ fn main() {
     // let socket = UdpSocket::bind((Ipv4Addr::new(192, 168, 4, 2), 5_000)).unwrap();
     let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 5_000)).unwrap();
 
-    // let n_bytes = socket.send_to(&[0; 10], "169.254.1.1:1234").unwrap();
+    // let n_bytes = socket.send_to(&[0; 10], "169.254.1.1:5000").unwrap();
     // println!("Sent {n_bytes} bytes");
 
     let mut positions = Positions {
@@ -58,9 +67,18 @@ fn main() {
         p24: 32768,
         p25: 32768,
         p26: 32768,
+        p31: 32768,
+        p32: 32768,
+        p33: 32768,
+        p34: 32768,
+        p35: 32768,
+        p36: 32768,
         p41: 32768,
         p42: 32768,
         p43: 32768,
+        p44: 32768,
+        p45: 32768,
+        p46: 32768,
     };
     let mut buffer = [0; 256];
 
@@ -79,9 +97,18 @@ fn main() {
             b"/024/" => &mut positions.p24,
             b"/025/" => &mut positions.p25,
             b"/026/" => &mut positions.p26,
+            b"/031/" => &mut positions.p31,
+            b"/032/" => &mut positions.p32,
+            b"/033/" => &mut positions.p33,
+            b"/034/" => &mut positions.p34,
+            b"/035/" => &mut positions.p35,
+            b"/036/" => &mut positions.p36,
             b"/041/" => &mut positions.p41,
             b"/042/" => &mut positions.p42,
             b"/043/" => &mut positions.p43,
+            b"/044/" => &mut positions.p44,
+            b"/045/" => &mut positions.p45,
+            b"/046/" => &mut positions.p46,
             other => panic!("unrecognized ID: {:?}", core::str::from_utf8(other)),
         };
 

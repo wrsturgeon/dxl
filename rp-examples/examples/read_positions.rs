@@ -10,6 +10,7 @@
 #![feature(impl_trait_in_assoc_type)]
 
 use {
+    core::task,
     cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
     defmt_rtt as _,
     dxl_driver::mutex::Mutex as _,
@@ -17,7 +18,7 @@ use {
     dxl_rp::serial,
     embassy_executor::Spawner,
     embassy_futures::yield_now,
-    embassy_net::{IpEndpoint, IpAddress, Ipv4Address, udp::{self, UdpSocket}},
+    embassy_net::{IpEndpoint, IpAddress, Ipv4Address, udp::{self, UdpMetadata, UdpSocket}},
     embassy_rp::{
         bind_interrupts,
         gpio::{Level, Output},
@@ -45,7 +46,7 @@ const BAUD: u32 = 4_000_000;
 
 const CYW43_POWER_MANAGEMENT: cyw43::PowerManagementMode = cyw43::PowerManagementMode::None; // cyw43::PowerManagementMode::PowerSave;
 
-// const UDP_BUFFER_SIZE: usize = 256;
+const UDP_BUFFER_SIZE: usize = 256;
 const UDP_RX_BUFFER_SIZE: usize = 256;
 const UDP_TX_BUFFER_SIZE: usize = 256;
 const UDP_RX_META_SIZE: usize = 256;
@@ -187,7 +188,7 @@ async fn main(spawner: Spawner) {
 
     let mut active = [false; dxl_packet::N_IDS as usize];
     let mut position = [32768_u16; dxl_packet::N_IDS as usize];
-    // let mut udp_buffer = [0; UDP_BUFFER_SIZE];
+    let mut udp_buffer = [0; UDP_BUFFER_SIZE];
     let mut osc_buffer: [u8; 10] = [
         b'/',
         b'2',
@@ -200,6 +201,8 @@ async fn main(spawner: Spawner) {
         b'3',
         b'5',
     ];
+
+    let mut endpoint = IpEndpoint::new(IpAddress::Ipv4(UDP_DEST), UDP_PORT);
 
     let mut next_frame = Instant::now();
 
@@ -216,7 +219,16 @@ async fn main(spawner: Spawner) {
         // defmt::debug!("ID {}...", id);
 
         // Check if we've received a UDP ping, in which case we should
-        // measure each active servo's position and return them all:
+        // update the destination IP address to which we send packets:
+        match socket.poll_recv_from(&mut udp_buffer, &mut task::Context::from_waker(task::Waker::noop())) {
+            task::Poll::Pending => {}
+            task::Poll::Ready(Err(e)) => defmt::error!("{}", e),
+            task::Poll::Ready(Ok((_n_bytes, UdpMetadata { endpoint: new_endpoint, .. }))) => {
+                endpoint = new_endpoint;
+            }
+        }
+
+        // If it's time for the next frame, measure each position and send them all:
         if Instant::now() > next_frame {
             next_frame += FRAME_DURATION;
 
@@ -242,7 +254,7 @@ async fn main(spawner: Spawner) {
                     osc_buffer[7] = b'0' + ((p / 100) % 10) as u8;
                     osc_buffer[8] = b'0' + ((p / 10) % 10) as u8;
                     osc_buffer[9] = b'0' + (p % 10) as u8;
-                    match socket.send_to(&osc_buffer, IpEndpoint::new(IpAddress::Ipv4(UDP_DEST), UDP_PORT)).await {
+                    match socket.send_to(&osc_buffer, endpoint).await {
                         Ok(()) => {}
                         Err(e) => defmt::error!("{}", e),
                     }
