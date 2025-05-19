@@ -14,7 +14,7 @@ use {
         peripherals::{UART1, USB},
         uart, usb,
     },
-    embassy_time::{Duration, Timer},
+    embassy_time::{Duration, Instant, Timer},
     panic_probe as _,
     static_cell::StaticCell,
 };
@@ -28,14 +28,18 @@ const BAUD_RATES: &[u32] = &[
     9_600, 57_600, 115_200, 1_000_000, 2_000_000, 3_000_000, 4_000_000, 4_500_000,
 ];
 
+/*
 const SAFE_PROFILE_VELOCITY: u32 = 16;
 const SAFE_PROFILE_ACCELERATION: u32 = 1;
+*/
 
-const PROFILE_VELOCITY: u32 = 4095;
+const SAFE_CURRENT: i16 = 3;
+
+const RESISTANCE_STARTUP: Duration = Duration::from_secs(1);
+const RESISTANCE_TIMEOUT: Duration = Duration::from_millis(100);
+
+const PROFILE_VELOCITY: u32 = 0xFFF;
 const PROFILE_ACCELERATION: u32 = 4;
-
-const CURRENT_THRESHOLD: i16 = 4;
-const CURRENT_THRESHOLD_SAMPLES: u8 = 8;
 
 const LOG_WIGGLE_ROOM: u8 = 5;
 
@@ -46,7 +50,7 @@ async fn pos<C: Comm>(bus: &mut Bus<C>, id: u8) -> i16 {
     loop {
         match bus.read_present_position(id).await {
             Ok(Read { bytes }) => {
-                let pos = u32::from_le_bytes(bytes);
+                let pos = i32::from_le_bytes(bytes);
                 let pos = match i16::try_from(pos) {
                     Ok(ok) => ok,
                     Err(e) => {
@@ -70,48 +74,60 @@ async fn pos<C: Comm>(bus: &mut Bus<C>, id: u8) -> i16 {
 }
 
 #[inline]
-async fn position_when_stopped<C: Comm>(bus: &mut Bus<C>, id: u8, goal_position: i16) -> i16 {
-    match bus
-        .write_goal_position(id, i32::from(goal_position).to_le_bytes())
-        .await
-    {
-        Ok(()) => {}
-        Err(e) => {
-            defmt::error!(
-                "ERROR: ID {} has been working but could not write its position: {}",
+async fn position_when_stopped<C: Comm>(bus: &mut Bus<C>, id: u8, increasing: bool) -> i16 {
+    'goal_current: loop {
+        match bus
+            .write_goal_current(
                 id,
-                e
-            );
-            log::error!("ERROR: ID {id} has been working but could not write its position");
-        }
-    }
-
-    let mut current_threshold_counter: u8 = 0;
-    loop {
-        match bus.read_present_current(id).await {
-            Ok(Read { bytes }) => {
-                let current = i16::from_le_bytes(bytes);
-                if current.abs() >= CURRENT_THRESHOLD {
-                    current_threshold_counter += 1;
-                    if current_threshold_counter >= CURRENT_THRESHOLD_SAMPLES {
-                        return pos(bus, id).await;
-                    }
+                (if increasing {
+                    SAFE_CURRENT
                 } else {
-                    let p = pos(bus, id).await;
-                    let error = (p - goal_position).abs();
-                    if error < POSITION_TOLERANCE {
-                        return goal_position;
-                    }
-                    current_threshold_counter = 0;
-                }
-            }
+                    -SAFE_CURRENT
+                })
+                .to_le_bytes(),
+            )
+            .await
+        {
+            Ok(()) => break 'goal_current,
             Err(e) => {
                 defmt::error!(
-                    "ERROR: ID {} has been working but could not read its current: {}",
+                    "ERROR: ID {} has been working but could not write its position: {}",
                     id,
                     e
                 );
-                log::error!("ERROR: ID {id} has been working but could not read its current");
+                log::error!("ERROR: ID {id} has been working but could not write its position");
+            }
+        }
+    }
+
+    let () = Timer::after(RESISTANCE_STARTUP).await;
+
+    let mut extreme = pos(bus, id).await;
+    let mut last_extreme_time = Instant::now();
+
+    loop {
+        let p = pos(bus, id).await;
+
+        defmt::info!("{}", p);
+        log::info!("{p}");
+
+        let new_extreme = if increasing { p > extreme } else { p < extreme };
+        if new_extreme {
+            last_extreme_time = Instant::now();
+            extreme = p;
+        } else {
+            if last_extreme_time.elapsed() >= RESISTANCE_TIMEOUT {
+                return p;
+            }
+        }
+
+        if increasing {
+            if p > const { 0xFFF - POSITION_TOLERANCE } {
+                return 0xFFF;
+            }
+        } else {
+            if p < POSITION_TOLERANCE {
+                return 0;
             }
         }
     }
@@ -203,16 +219,68 @@ async fn main(spawner: Spawner) {
             continue;
         };
 
+        defmt::info!("");
+        log::info!("");
         defmt::info!("Checking stops for ID {} ({} baud)...", id, baud);
         log::info!("Checking stops for ID {id} ({baud} baud)...");
 
         let () = bus.set_baud(baud.get());
 
+        'reboot: loop {
+            match bus.reboot(id).await {
+                Ok(()) => loop {
+                    match bus.write_torque_enable(id, [0]).await {
+                        Ok(()) => break 'reboot,
+                        Err(dxl_driver::bus::Error::Io(dxl_driver::IoError::Recv(
+                            serial::RecvError::TimedOut(_),
+                        ))) => continue,
+                        Err(e) => {
+                            defmt::error!(
+                                "ERROR: ID {} has been working but could not disable torque: {}",
+                                id,
+                                e
+                            );
+                            log::error!(
+                                "ERROR: ID {id} has been working but could not disable torque",
+                            );
+                        }
+                    }
+                },
+                Err(e) => {
+                    defmt::error!(
+                        "ERROR: ID {} has been working but could not reboot: {}",
+                        id,
+                        e
+                    );
+                    log::error!("ERROR: ID {id} has been working but could not reboot");
+                }
+            }
+        }
+
+        'operating_mode: loop {
+            // Use *current-control mode*, not position control:
+            match bus.write_operating_mode(id, [0]).await {
+                Ok(()) => break 'operating_mode,
+                Err(e) => {
+                    defmt::error!(
+                        "ERROR: ID {} has been working but could not set its operating mode: {}",
+                        id,
+                        e
+                    );
+                    log::error!(
+                        "ERROR: ID {id} has been working but could not set its operating mode",
+                    );
+                }
+            }
+        }
+
+        /*
+        'velocity: loop {
         match bus
             .write_profile_velocity(id, SAFE_PROFILE_VELOCITY.to_le_bytes())
             .await
         {
-            Ok(()) => {}
+            Ok(()) => break 'velocity,
             Err(e) => {
                 defmt::error!(
                     "ERROR: ID {} has been working but could not set its velocity profile: {}",
@@ -220,16 +288,18 @@ async fn main(spawner: Spawner) {
                     e
                 );
                 log::error!(
-                    "ERROR: ID {id} has been working but could not set its velocity profile"
+                    "ERROR: ID {id} has been working but could not set its velocity profile",
                 );
             }
         }
+        }
 
+        'acceleration: loop {
         match bus
             .write_profile_acceleration(id, SAFE_PROFILE_ACCELERATION.to_le_bytes())
             .await
         {
-            Ok(()) => {}
+            Ok(()) => break 'acceleration,
             Err(e) => {
                 defmt::error!(
                     "ERROR: ID {} has been working but could not set its acceleration profile: {}",
@@ -237,52 +307,60 @@ async fn main(spawner: Spawner) {
                     e
                 );
                 log::error!(
-                    "ERROR: ID {id} has been working but could not set its acceleration profile"
+                    "ERROR: ID {id} has been working but could not set its acceleration profile",
                 );
             }
         }
+        }
+        */
 
-        match bus.write_torque_enable(id, [1]).await {
-            Ok(()) => {}
-            Err(e) => {
-                defmt::error!(
-                    "ERROR: ID {} has been working but could not enable torque: {}",
-                    id,
-                    e
-                );
-                log::error!("ERROR: ID {id} has been working but could not enable torque");
+        'torque: loop {
+            match bus.write_torque_enable(id, [1]).await {
+                Ok(()) => break 'torque,
+                Err(e) => {
+                    defmt::error!(
+                        "ERROR: ID {} has been working but could not enable torque: {}",
+                        id,
+                        e
+                    );
+                    log::error!("ERROR: ID {id} has been working but could not enable torque");
+                }
             }
         }
 
-        let min = position_when_stopped(&mut bus, id, 0).await;
+        let min = position_when_stopped(&mut bus, id, false).await;
         defmt::info!("ID {} stopped decreasing at {}", id, min);
         log::info!("ID {id} stopped decreasing at {min}");
 
-        match bus.write_torque_enable(id, [0]).await {
-            Ok(()) => {}
-            Err(e) => {
-                defmt::error!(
-                    "ERROR: ID {} has been working but could not disable torque: {}",
-                    id,
-                    e
-                );
-                log::error!("ERROR: ID {id} has been working but could not disable torque");
+        'torque: loop {
+            match bus.write_torque_enable(id, [0]).await {
+                Ok(()) => break 'torque,
+                Err(e) => {
+                    defmt::error!(
+                        "ERROR: ID {} has been working but could not disable torque: {}",
+                        id,
+                        e
+                    );
+                    log::error!("ERROR: ID {id} has been working but could not disable torque");
+                }
             }
         }
         let () = Timer::after(Duration::from_millis(500)).await;
-        match bus.write_torque_enable(id, [1]).await {
-            Ok(()) => {}
-            Err(e) => {
-                defmt::error!(
-                    "ERROR: ID {} has been working but could not enable torque: {}",
-                    id,
-                    e
-                );
-                log::error!("ERROR: ID {id} has been working but could not enable torque");
+        'torque: loop {
+            match bus.write_torque_enable(id, [1]).await {
+                Ok(()) => break 'torque,
+                Err(e) => {
+                    defmt::error!(
+                        "ERROR: ID {} has been working but could not enable torque: {}",
+                        id,
+                        e
+                    );
+                    log::error!("ERROR: ID {id} has been working but could not enable torque");
+                }
             }
         }
 
-        let max = position_when_stopped(&mut bus, id, 4095).await;
+        let max = position_when_stopped(&mut bus, id, true).await;
         defmt::info!("ID {} stopped increasing at {}", id, max);
         log::info!("ID {id} stopped increasing at {max}");
 
@@ -294,18 +372,22 @@ async fn main(spawner: Spawner) {
         defmt::info!("ID {} stops set to {}", id, stop);
         log::info!("ID {id} stops set to {stop:?}");
 
-        match bus.write_torque_enable(id, [0]).await {
-            Ok(()) => {}
-            Err(e) => {
-                defmt::error!(
-                    "ERROR: ID {} has been working but could not disable torque: {}",
-                    id,
-                    e
-                );
-                log::error!("ERROR: ID {id} has been working but could not disable torque");
+        'torque: loop {
+            match bus.write_torque_enable(id, [0]).await {
+                Ok(()) => break 'torque,
+                Err(e) => {
+                    defmt::error!(
+                        "ERROR: ID {} has been working but could not disable torque: {}",
+                        id,
+                        e
+                    );
+                    log::error!("ERROR: ID {id} has been working but could not disable torque");
+                }
             }
         }
     }
+    defmt::info!("");
+    log::info!("");
     defmt::info!("Checked stops");
     log::info!("Checked stops");
 
@@ -315,6 +397,24 @@ async fn main(spawner: Spawner) {
         };
         let () = bus.set_baud(baud.get());
         let (min, _) = *unsafe { stops.get_unchecked(id as usize) };
+
+        // Back to position control mode:
+        'operating_mode: loop {
+            match bus.write_operating_mode(id, [3]).await {
+                Ok(()) => break 'operating_mode,
+                Err(e) => {
+                    defmt::error!(
+                        "ERROR: ID {} has been working but could not set its operating mode: {}",
+                        id,
+                        e
+                    );
+                    log::error!(
+                        "ERROR: ID {id} has been working but could not set its operating mode",
+                    );
+                }
+            }
+        }
+
         'velocity: loop {
             match bus
                 .write_profile_velocity(id, PROFILE_VELOCITY.to_le_bytes())
