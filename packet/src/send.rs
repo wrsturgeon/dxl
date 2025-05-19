@@ -3,7 +3,7 @@
     reason = "extra binary space, inconsistent across instructions"
 )]
 
-use crate::{constants::C16, control_table, recv, Instruction};
+use crate::{Instruction, constants::C16, control_table, recv};
 
 #[repr(C, packed)]
 #[derive(defmt::Format)]

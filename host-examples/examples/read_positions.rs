@@ -1,4 +1,4 @@
-use {std::net::{Ipv4Addr, UdpSocket}};
+use std::net::{Ipv4Addr, UdpSocket};
 
 /*
 fn getaddr() -> SockaddrStorage {
@@ -52,7 +52,6 @@ struct Positions {
 }
 
 fn main() {
-
     // let socket = make_a_socket_god_damn_it();
     // let socket = UdpSocket::bind((Ipv4Addr::new(192, 168, 4, 2), 5_000)).unwrap();
     let socket = UdpSocket::bind((Ipv4Addr::new(0, 0, 0, 0), 5_000)).unwrap();
@@ -85,9 +84,9 @@ fn main() {
     loop {
         let (n_bytes, endpoint) = socket.recv_from(&mut buffer).unwrap();
         // println!("Received {:?} ({} bytes) from {:?}", core::str::from_utf8(&buffer[..n_bytes]), n_bytes, endpoint);
-        
+
         if n_bytes != 10 {
-            continue
+            continue;
         }
 
         let to_edit: &mut u16 = match &buffer[..5] {

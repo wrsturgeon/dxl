@@ -1,0 +1,481 @@
+#![no_std]
+#![no_main]
+#![feature(impl_trait_in_assoc_type)]
+
+use {
+    bt_hci::controller::ExternalController,
+    core::{
+        mem::{transmute, MaybeUninit},
+        num::NonZeroU16,
+    },
+    cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
+    defmt_rtt as _,
+    dxl_driver::mutex::Mutex as _,
+    dxl_rp::serial,
+    embassy_executor::Spawner,
+    embassy_rp::{
+        bind_interrupts,
+        gpio::{Level, Output},
+        peripherals::{DMA_CH0, PIO0, UART1},
+        pio::{self, Pio},
+        uart,
+    },
+    embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+    panic_probe as _,
+    static_cell::StaticCell,
+    trouble_host::{
+        self as ble,
+        advertise::{AdStructure, Advertisement, AdvertisementParameters},
+        gatt::{GattConnectionEvent, GattEvent},
+        prelude::AttErrorCode,
+    },
+};
+
+bind_interrupts!(struct Irqs {
+    PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
+    UART1_IRQ => uart::InterruptHandler<UART1>;
+});
+
+const BAUD_RATES: &[u32] = &[
+    9_600, 57_600, 1_000_000, 2_000_000, 3_000_000, 4_000_000, 4_500_000,
+];
+
+type Position = u16;
+const DEFAULT_POSITION: Position = 2048;
+
+const MAX_BLE_CONNECTIONS: usize = 1;
+const MAX_L2CAP_CHANNELS: usize = dxl_packet::N_IDS as usize;
+const L2CAP_MTU: usize = 23;
+
+const CYW43_POWER_MANAGEMENT: cyw43::PowerManagementMode = cyw43::PowerManagementMode::None; // cyw43::PowerManagementMode::PowerSave;
+
+const CHARACTERISTICS_MULTIPLIER: usize = 3;
+
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    static BLE_RESOURCES: StaticCell<
+        ble::HostResources<MAX_BLE_CONNECTIONS, MAX_L2CAP_CHANNELS, L2CAP_MTU>,
+    > = StaticCell::new();
+    static BLE_STACK: StaticCell<
+        ble::Stack<
+            'static,
+            ExternalController<cyw43::bluetooth::BtDriver<'static>, { dxl_packet::N_IDS as usize }>,
+        >,
+    > = StaticCell::new();
+
+    let p = embassy_rp::init(Default::default());
+
+    let _dxl_bus_mutex = dxl_rp::bus(
+        1_000_000, p.PIN_13, p.UART1, p.PIN_8, p.PIN_9, Irqs, p.DMA_CH1, p.DMA_CH2,
+    );
+    let mut dxl_bus = match _dxl_bus_mutex.lock().await {
+        Ok(ok) => ok,
+        Err(e) => defmt::panic!("Couldn't acquire the Dynamixel bus mutex lock: {}", e),
+    };
+
+    let mut dxl_activity = [false; dxl_packet::N_IDS as usize];
+    // let mut dxl_activity = [true; dxl_packet::N_IDS as usize];
+
+    defmt::info!("Scanning for Dynamixels across all baud rates and IDs...");
+    let baud = {
+        let mut maybe_baud = None;
+        'until_found: loop {
+            for &baud in BAUD_RATES.iter().rev() {
+                defmt::info!("");
+                defmt::info!("{} baud:", baud);
+
+                let () = dxl_bus.set_baud(baud);
+
+                for (i, id) in (dxl_packet::MIN_ID..=dxl_packet::MAX_ID).enumerate() {
+                    defmt::debug!("Pinging {}...", id);
+                    let () = match dxl_bus.write_torque_enable(id, [1]).await {
+                        Ok(()) => {
+                            defmt::info!("    --> ID {} responded!", id);
+                            dxl_activity[i] = true;
+                            maybe_baud = Some(baud);
+                            let Ok(()) = dxl_bus
+                                .write_profile_acceleration(id, 256_u32.to_le_bytes())
+                                .await
+                            else {
+                                defmt::panic!("profile acceleration")
+                            };
+                            let Ok(()) = dxl_bus
+                                .write_profile_velocity(id, 4095_u32.to_le_bytes())
+                                .await
+                            else {
+                                defmt::panic!("profile velocity")
+                            };
+                            dxl_bus
+                                .write_goal_position(id, 2048_u32.to_le_bytes())
+                                .await;
+                        }
+                        Err(dxl_driver::bus::Error::Io(dxl_driver::IoError::Recv(
+                            serial::RecvError::TimedOut(_),
+                        ))) => defmt::debug!("    --> timed out"),
+                        Err(e) => {
+                            defmt::info!("    --> ID {} responded! ERROR: {}", id, e,);
+                            dxl_activity[i] = true;
+                            maybe_baud = Some(baud);
+                        }
+                    };
+                }
+
+                if maybe_baud.is_some() {
+                    break 'until_found;
+                }
+            }
+        }
+        match maybe_baud {
+            Some(baud) => baud,
+            None => defmt::panic!("INTERNAL ERROR: no active baud found"),
+        }
+    };
+    defmt::info!("Active baud rate: {}", baud);
+
+    let bt_device = {
+        // CYW43 wireless board
+        static STATE: StaticCell<cyw43::State> = StaticCell::new();
+
+        let (_net_device, bt_device, mut control, runner) = cyw43::new_with_bluetooth(
+            STATE.init(cyw43::State::new()),
+            Output::new(p.PIN_23, Level::Low),
+            {
+                let mut pio = Pio::new(p.PIO0, Irqs);
+                PioSpi::new(
+                    &mut pio.common,
+                    pio.sm0,
+                    RM2_CLOCK_DIVIDER,
+                    pio.irq0,
+                    Output::new(p.PIN_25, Level::High),
+                    p.PIN_24,
+                    p.PIN_29,
+                    p.DMA_CH0,
+                )
+            },
+            include_bytes!("../cyw43-firmware/43439A0.bin"),
+            include_bytes!("../cyw43-firmware/43439A0_btfw.bin"),
+        )
+        .await;
+
+        {
+            // CYW43 WiFi/Bluetooth task (also controls onboard LED for some reason):
+            #[embassy_executor::task]
+            async fn task(
+                runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>,
+            ) -> ! {
+                runner.run().await
+            }
+            let () = match spawner.spawn(task(runner)) {
+                Ok(()) => defmt::info!("Spawned CYW43 task"),
+                Err(e) => defmt::panic!("Error spawning CYW43 task: {}", e),
+            };
+        }
+
+        let () = control
+            .init(include_bytes!("../cyw43-firmware/43439A0_clm.bin"))
+            .await;
+        let () = control.set_power_management(CYW43_POWER_MANAGEMENT).await;
+
+        bt_device
+    };
+
+    let ble_controller = ExternalController::<_, { dxl_packet::N_IDS as usize }>::new(bt_device);
+
+    // Hardcoded peripheral address
+    let address = ble::Address {
+        kind: bt_hci::param::AddrKind::PUBLIC,
+        addr: bt_hci::param::BdAddr::new([b'P', b'C', b'O', b'M', b'X', b'L']),
+    };
+    defmt::info!("Our address = {:X}", address);
+
+    let resources: &mut _ = BLE_RESOURCES.init(ble::HostResources::new());
+    let stack: &mut _ =
+        BLE_STACK.init(ble::new(ble_controller, resources).set_random_address(address));
+    let ble::Host {
+        mut peripheral,
+        runner,
+        ..
+    } = stack.build();
+
+    {
+        // BLE task:
+        #[embassy_executor::task]
+        async fn task(
+            mut runner: ble::prelude::Runner<
+                'static,
+                ExternalController<
+                    cyw43::bluetooth::BtDriver<'static>,
+                    { dxl_packet::N_IDS as usize },
+                >,
+            >,
+        ) {
+            match runner.run().await {
+                Ok(()) => {}
+                Err(e) => defmt::panic!("{}", e),
+            }
+        }
+        let () = match spawner.spawn(task(runner)) {
+            Ok(()) => defmt::info!("Spawned BLE task"),
+            Err(e) => defmt::panic!("Error spawning BLE task: {}", e),
+        };
+    }
+
+    'readvertise: loop {
+        let mut ad_data = [0; 31];
+        {
+            match AdStructure::encode_slice(
+                &[
+                    AdStructure::ShortenedLocalName(b"Picomixel"),
+                    AdStructure::Flags(
+                        ble::advertise::LE_GENERAL_DISCOVERABLE
+                            | ble::advertise::BR_EDR_NOT_SUPPORTED,
+                    ),
+                ],
+                &mut ad_data,
+            ) {
+                Ok(n_bytes) => defmt::debug!("Encoded BLE advertisement in {} bytes", n_bytes),
+                Err(e) => {
+                    defmt::error!("Error encoding a BLE advertisement: {}", e);
+                    continue 'readvertise;
+                }
+            }
+        }
+
+        let advertiser = match peripheral
+            .advertise(
+                &AdvertisementParameters::default(),
+                Advertisement::ConnectableScannableUndirected {
+                    adv_data: &ad_data,
+                    scan_data: &[],
+                },
+            )
+            .await
+        {
+            Ok(ok) => ok,
+            Err(e) => {
+                defmt::error!("Error advertising over BLE: {}", e);
+                continue 'readvertise;
+            }
+        };
+        defmt::info!("Advertising over BLE...");
+
+        let conn = match advertiser.accept().await {
+            Ok(ok) => ok,
+            Err(e) => {
+                defmt::error!("Error waiting for a BLE connection: {}", e);
+                continue 'readvertise;
+            }
+        };
+        defmt::info!("BLE connection incoming...");
+
+        let mut dxl_buffer: [Position; dxl_packet::N_IDS as usize] =
+            const { [DEFAULT_POSITION; dxl_packet::N_IDS as usize] };
+
+        let mut table = ble::attribute::AttributeTable::<
+            CriticalSectionRawMutex,
+            { CHARACTERISTICS_MULTIPLIER * (dxl_packet::N_IDS as usize) },
+        >::new();
+        let handles = {
+            let mut buffer =
+                [MaybeUninit::<Option<NonZeroU16>>::uninit(); dxl_packet::N_IDS as usize];
+            for (i, id) in (dxl_packet::MIN_ID..=dxl_packet::MAX_ID).enumerate() {
+                let uuid = ble::attribute::Uuid::Uuid16(u16::from(id).to_le_bytes());
+                buffer[i].write(if dxl_activity[i] {
+                    let ble::attribute::Characteristic { handle, .. } = table
+                        .add_service(ble::attribute::Service { uuid: uuid.clone() })
+                        .add_characteristic(
+                            uuid,
+                            &[
+                                ble::attribute::CharacteristicProp::Read,
+                                ble::attribute::CharacteristicProp::Write,
+                            ],
+                            DEFAULT_POSITION,
+                            unsafe {
+                                core::slice::from_raw_parts_mut(
+                                    &mut dxl_buffer[i] as *mut Position as *mut u8,
+                                    const { core::mem::size_of::<Position>() },
+                                )
+                            },
+                        )
+                        .build();
+                    let Some(nonzero) = NonZeroU16::new(handle) else {
+                        defmt::error!("BLE returned a handle of zero!");
+                        continue 'readvertise;
+                    };
+                    Some(nonzero)
+                } else {
+                    None
+                });
+            }
+            unsafe {
+                transmute::<
+                    [MaybeUninit<Option<NonZeroU16>>; dxl_packet::N_IDS as usize],
+                    [Option<NonZeroU16>; dxl_packet::N_IDS as usize],
+                >(buffer)
+            }
+        };
+
+        let server = ble::prelude::AttributeServer::<
+            _,
+            { CHARACTERISTICS_MULTIPLIER * (dxl_packet::N_IDS as usize) },
+            { dxl_packet::N_IDS as usize },
+            MAX_BLE_CONNECTIONS,
+        >::new(table);
+
+        let gatt = match conn.with_attribute_server(&server) {
+            Ok(ok) => ok,
+            Err(e) => {
+                defmt::error!(
+                    "Error establishing a GATT server on top of a connection: {}",
+                    e
+                );
+                continue 'readvertise;
+            }
+        };
+        defmt::info!("    connected!");
+
+        'gatt: loop {
+            match gatt.next().await {
+                GattConnectionEvent::Disconnected { reason } => {
+                    defmt::info!("BLE disconnected: {}", reason);
+                    break 'gatt;
+                }
+                GattConnectionEvent::Gatt { event: Err(e) } => defmt::error!("GATT error: {}", e),
+                GattConnectionEvent::Gatt {
+                    event: Ok(GattEvent::Read(event)),
+                } => {
+                    let handle: u16 = event.handle();
+                    for (i, id) in (dxl_packet::MIN_ID..=dxl_packet::MAX_ID).enumerate() {
+                        if handles[i].is_some_and(|nz| nz.get() == handle) {
+                            let result = match dxl_bus.read_present_position(id).await {
+                                Err(e) => {
+                                    defmt::error!(
+                                        "Error reading Dynamixel ID {}'s position: {}",
+                                        id,
+                                        e
+                                    );
+                                    Err(AttErrorCode::UNLIKELY_ERROR)
+                                }
+                                Ok(dxl_packet::recv::Read { bytes }) => {
+                                    let u32 = u32::from_le_bytes(bytes);
+                                    match u16::try_from(u32) {
+                                        Ok(u16) => {
+                                            defmt::info!(
+                                                "ID {} (x{:X}) is at {} (x{:X})",
+                                                id,
+                                                id,
+                                                u16,
+                                                u16
+                                            );
+                                            dxl_buffer[i] = u16;
+                                            Ok(())
+                                        }
+                                        Err(_) => Err(AttErrorCode::OUT_OF_RANGE),
+                                    }
+                                }
+                            };
+                            let () = match result {
+                                Ok(()) => match event.accept() {
+                                    Ok(reply) => reply.send().await,
+                                    Err(e) => defmt::error!(
+                                        "Error accepting a successful BLE read request: {}",
+                                        e
+                                    ),
+                                },
+                                Err(e) => match event.reject(e) {
+                                    Ok(reply) => reply.send().await,
+                                    Err(e) => defmt::error!(
+                                        "Error rejecting a failed BLE read request: {}",
+                                        e
+                                    ),
+                                },
+                            };
+                            continue 'gatt;
+                        }
+                    }
+                    let () = match event.reject(AttErrorCode::INVALID_HANDLE) {
+                        Ok(reply) => reply.send().await,
+                        Err(e) => {
+                            defmt::error!("Error rejecting an invalid BLE read request: {}", e)
+                        }
+                    };
+                }
+                GattConnectionEvent::Gatt {
+                    event: Ok(GattEvent::Write(event)),
+                } => {
+                    let handle: u16 = event.handle();
+                    let position = {
+                        let bytes = event.data();
+                        match bytes.len() {
+                            0 => 0,
+                            1 => bytes[0] as u16,
+                            2 => u16::from_le_bytes([bytes[0], bytes[1]]),
+                            _ => {
+                                match event.reject(AttErrorCode::OUT_OF_RANGE) {
+                                    Ok(reply) => reply.send().await,
+                                    Err(e) => defmt::error!(
+                                        "Error rejecting an invalid BLE write request: {}",
+                                        e
+                                    ),
+                                }
+                                continue 'gatt;
+                            }
+                        }
+                    };
+                    for (i, id) in (dxl_packet::MIN_ID..=dxl_packet::MAX_ID).enumerate() {
+                        if handles[i].is_some_and(|nz| nz.get() == handle) {
+                            defmt::info!(
+                                "Writing ID {} (x{:X}) to {} (x{:X})...",
+                                id,
+                                id,
+                                position,
+                                position
+                            );
+                            let [lo, hi] = position.to_le_bytes();
+                            let le = [lo, hi, 0, 0];
+                            defmt::assert_eq!(u32::from_le_bytes(le.clone()), position as u32);
+                            let result = match dxl_bus.write_goal_position(id, le).await {
+                                Err(e) => {
+                                    defmt::error!(
+                                        "Error writing Dynamixel ID {}'s position: {}",
+                                        id,
+                                        e
+                                    );
+                                    Err(AttErrorCode::UNLIKELY_ERROR)
+                                }
+                                Ok(()) => {
+                                    dxl_buffer[i] = position;
+                                    Ok(())
+                                }
+                            };
+                            let () = match result {
+                                Ok(()) => match event.accept() {
+                                    Ok(reply) => reply.send().await,
+                                    Err(e) => defmt::error!(
+                                        "Error accepting a successful BLE write request: {}",
+                                        e
+                                    ),
+                                },
+                                Err(e) => match event.reject(e) {
+                                    Ok(reply) => reply.send().await,
+                                    Err(e) => defmt::error!(
+                                        "Error rejecting a failed BLE write request: {}",
+                                        e
+                                    ),
+                                },
+                            };
+                            continue 'gatt;
+                        }
+                    }
+                    let () = match event.reject(AttErrorCode::INVALID_HANDLE) {
+                        Ok(reply) => reply.send().await,
+                        Err(e) => {
+                            defmt::error!("Error rejecting an invalid BLE write request: {}", e)
+                        }
+                    };
+                }
+                other => defmt::warn!("Unanticipated GATT event"),
+            }
+        }
+    }
+}

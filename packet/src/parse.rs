@@ -213,7 +213,7 @@ mod test {
                         TestResult::error(format!(
                             "{i:02X?} -> {little_endian:02X?} -> {roundtrip:02X?} =/= {i:02X?}"
                         ))
-                    }
+                    };
                 }
             };
         }

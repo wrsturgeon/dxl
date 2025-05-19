@@ -1,6 +1,6 @@
 use {
-    crate::comm::Comm,
-    ::dxl_packet::{packet::recv::PersistentConfig, New},
+    crate::{comm::Comm, mutex::Mutex},
+    ::dxl_packet::{New, packet::recv::PersistentConfig},
     paste::paste,
 };
 
@@ -138,6 +138,7 @@ impl<C: Comm> Bus<C> {
     {
         let mut stream = {
             let packet = ::dxl_packet::packet::new::<Insn>(id, parameters);
+            defmt::debug!("Packet: {}", packet.as_buffer());
             self.comm
                 .comm(packet.as_buffer())
                 .await
@@ -219,4 +220,89 @@ impl<C: Comm> Bus<C> {
     control_table_methods!(PresentInputVoltage);
     control_table_methods!(PresentTemperature);
     control_table_methods!(BackupReady);
+}
+
+const SCAN_BAUD: &[u32] = &[
+    9_600, 57_600, 115_200, 1_000_000, 2_000_000, 3_000_000, 4_000_000, 4_500_000,
+];
+
+pub struct Scan<'bus, C: Comm, M: Mutex<Item = Bus<C>>> {
+    bus: &'bus M,
+    baud_index: usize,
+    id: u8,
+}
+
+pub struct ScanFound<'bus, C: Comm, M: Mutex<Item = Bus<C>>> {
+    pub baud: u32,
+    pub id: u8,
+    pub model_number: u16,
+    pub firmware_version: u8,
+    pub continue_scanning: Scan<'bus, C, M>,
+}
+
+impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> Scan<'bus, C, M> {
+    #[inline(always)]
+    pub fn start(bus: &'bus M) -> Self {
+        Self {
+            bus,
+            baud_index: usize::MAX,
+            id: dxl_packet::MAX_ID,
+        }
+    }
+
+    #[inline]
+    pub async fn next(mut self) -> Option<ScanFound<'bus, C, M>> {
+        loop {
+            if self.id == dxl_packet::MAX_ID {
+                self.baud_index = self.baud_index.wrapping_add(1);
+                let Some(&baud) = SCAN_BAUD.get(self.baud_index) else {
+                    return None;
+                };
+                defmt::info!("");
+                defmt::info!("Scanning at {} baud:", baud);
+                let mut bus = self.bus.lock_persistent().await;
+                let () = bus.set_baud(baud);
+                self.id = dxl_packet::MIN_ID;
+            }
+
+            'ignore_unrelated_errors: loop {
+                let response = {
+                    let mut bus = self.bus.lock_persistent().await;
+                    bus.ping(self.id).await
+                };
+                match response {
+                    Ok(dxl_packet::recv::Ping {
+                        model_number,
+                        firmware_version,
+                    }) => {
+                        return Some(ScanFound {
+                            baud: SCAN_BAUD[self.baud_index],
+                            id: self.id,
+                            model_number,
+                            firmware_version,
+                            continue_scanning: self,
+                        });
+                    }
+                    Err(Error::Io(crate::IoError::Recv(_))) => break 'ignore_unrelated_errors,
+                    Err(e) => defmt::warn!(
+                        "Unrelated error while scanning ID {} at {} baud: {}; trying again...",
+                        self.id,
+                        SCAN_BAUD[self.baud_index],
+                        e,
+                    ),
+                }
+            }
+        }
+    }
+
+    #[inline]
+    pub async fn next_looping(mut self) -> ScanFound<'bus, C, M> {
+        let bus = self.bus;
+        loop {
+            match self.next().await {
+                Some(found) => return found,
+                None => self = Self::start(bus),
+            }
+        }
+    }
 }

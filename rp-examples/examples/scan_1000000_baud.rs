@@ -8,22 +8,22 @@ use {
     dxl_packet::recv,
     dxl_rp::serial,
     embassy_executor::Spawner,
-    embassy_rp::{bind_interrupts, peripherals::UART0, uart},
+    embassy_rp::{bind_interrupts, peripherals::UART1, uart},
     panic_probe as _,
 };
 
 bind_interrupts!(struct Irqs {
-    UART0_IRQ => uart::InterruptHandler<UART0>;
+    UART1_IRQ => uart::InterruptHandler<UART1>;
 });
 
 const BAUD: u32 = 1_000_000;
 
 #[embassy_executor::main]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     let dxl_bus = dxl_rp::bus(
-        BAUD, p.PIN_13, p.UART0, p.PIN_16, p.PIN_17, Irqs, p.DMA_CH1, p.DMA_CH2,
+        BAUD, p.PIN_7, p.UART1, p.PIN_8, p.PIN_9, Irqs, p.DMA_CH1, p.DMA_CH2,
     );
 
     for id in dxl_packet::MIN_ID..=dxl_packet::MAX_ID {

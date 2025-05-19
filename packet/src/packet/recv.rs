@@ -1,4 +1,4 @@
-use crate::{crc::Crc, parse, recv, Instruction, New};
+use crate::{Instruction, New, crc::Crc, parse, recv};
 
 #[repr(u8)]
 #[non_exhaustive]
@@ -30,12 +30,27 @@ impl defmt::Format for SoftwareError {
     fn format(&self, f: defmt::Formatter) {
         match *self {
             Self::ResultFail => defmt::write!(f, "Actuator could not process the packet"),
-            Self::InstructionError => defmt::write!(f, "Either the actuator did not recognize the instruction byte or it received `Action` without `RegWrite`"),
-            Self::CrcError => defmt::write!(f, "Actuator disagrees about CRC calculation (likely a corrupted packet)"),
-            Self::DataRangeError => defmt::write!(f, "Data to be written is too long to fit in the specified range of memory"),
-            Self::DataLengthError => defmt::write!(f, "Data to be written is too short to fit in the specified range of memory"),
+            Self::InstructionError => defmt::write!(
+                f,
+                "Either the actuator did not recognize the instruction byte or it received `Action` without `RegWrite`"
+            ),
+            Self::CrcError => defmt::write!(
+                f,
+                "Actuator disagrees about CRC calculation (likely a corrupted packet)"
+            ),
+            Self::DataRangeError => defmt::write!(
+                f,
+                "Data to be written is too long to fit in the specified range of memory"
+            ),
+            Self::DataLengthError => defmt::write!(
+                f,
+                "Data to be written is too short to fit in the specified range of memory"
+            ),
             Self::DataLimitError => defmt::write!(f, "Data out of range"),
-            Self::AccessError => defmt::write!(f, "Couldn't write (either tried to write to EEPROM with torque enabled, tried to write to read-only memory, or tried to read from write-only memory)"),
+            Self::AccessError => defmt::write!(
+                f,
+                "Couldn't write (either tried to write to EEPROM with torque enabled, tried to write to read-only memory, or tried to read from write-only memory)"
+            ),
         }
     }
 }
@@ -406,7 +421,7 @@ impl<Insn: Instruction> parse::State<u8> for WithoutCrc<Insn> {
                                 output: Ok(output),
                                 expected_crc: crc_state.collapse(),
                                 hardware_error,
-                            }))
+                            }));
                         }
                         parse::Status::Incomplete((state, _)) => Self::Parameters {
                             id,

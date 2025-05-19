@@ -7,7 +7,7 @@ use {
     cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
     defmt_rtt as _,
     dxl_driver::mutex::Mutex as _,
-    // dxl_packet::recv,
+    dxl_packet::recv,
     dxl_rp::serial,
     embassy_executor::Spawner,
     embassy_futures::yield_now,
@@ -166,7 +166,10 @@ async fn main(spawner: Spawner) {
     );
     let mut bus = match dxl_bus_mutex.lock().await {
         Ok(ok) => ok,
-        Err(e) => defmt::panic!("Couldn't acquire the Dynamixel bus mutex lock: {}", e),
+        Err(e) => {
+            defmt::error!("Couldn't acquire the Dynamixel bus mutex lock: {}", e);
+            loop {}
+        }
     };
 
     let mut active = [false; dxl_packet::N_IDS as usize];
@@ -247,7 +250,6 @@ async fn main(spawner: Spawner) {
 
             // If this ID has been unresponsive, give it another chance:
             if !active[i] {
-                /*
                 match bus.ping(id).await {
                     Ok(recv::Ping {
                         model_number,
@@ -266,20 +268,6 @@ async fn main(spawner: Spawner) {
                     ))) => {}
                     Err(e) => {
                         defmt::info!("    --> ID {} responded! ERROR: {}", id, e,);
-                        active[i] = true;
-                    }
-                }
-                */
-                match bus.write_torque_enable(id, [0]).await {
-                    Ok(()) => {
-                        defmt::info!("    --> ID {} responded!", id);
-                        active[i] = true;
-                    }
-                    Err(dxl_driver::bus::Error::Io(dxl_driver::IoError::Recv(
-                        serial::RecvError::TimedOut(_),
-                    ))) => {}
-                    Err(e) => {
-                        defmt::info!("    --> ID {} responded! ERROR: {}", id, e);
                         active[i] = true;
                     }
                 }

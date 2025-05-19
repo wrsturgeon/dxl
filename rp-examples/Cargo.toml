@@ -7,56 +7,8 @@ resolver = "2"
 [build-dependencies]
 reqwest = { version = "*", features = ["blocking"] }
 
-# [dependencies]
-# cortex-m-rt = { git = "https://github.com/rust-embedded/cortex-m.git" }
-# cyw43 = { git = "https://github.com/embassy-rs/embassy.git", features = [
-#   "bluetooth",
-#   "defmt",
-#   "firmware-logs",
-# ] }
-# cyw43-pio = { git = "https://github.com/embassy-rs/embassy.git", features = [
-#   "defmt",
-# ] }
-# defmt = { git = "https://github.com/knurling-rs/defmt.git" }
-# defmt-rtt = { git = "https://github.com/knurling-rs/defmt.git" }
-# dxl-driver = { path = "../driver" }
-# dxl-packet = { path = "../packet" }
-# dxl-rp = { path = "../rp" }
-# embassy-executor = { git = "https://github.com/embassy-rs/embassy.git", features = [
-#   "arch-cortex-m",
-#   "defmt",
-#   "executor-interrupt",
-#   "executor-thread",
-#   "nightly",
-# ] }
-# embassy-futures = { git = "https://github.com/embassy-rs/embassy.git" }
-# embassy-net = { git = "https://github.com/embassy-rs/embassy.git", features = [
-#   "defmt",
-#   "medium-ethernet",
-#   "packet-trace",
-#   "proto-ipv4",
-#   "udp",
-# ] }
-# embassy-time = { git = "https://github.com/embassy-rs/embassy.git", features = [
-#   "defmt",
-#   "defmt-timestamp-uptime",
-# ] }
-# embassy-rp = { git = "https://github.com/embassy-rs/embassy.git", features = [
-#   "binary-info",
-#   "critical-section-impl",
-#   "defmt",
-#   "rp235xa",
-#   "time-driver",
-#   "unstable-pac",
-# ] }
-# heapless = { version = "*", default-feautures = false }
-# panic-probe = { git = "https://github.com/knurling-rs/defmt.git", features = [
-#   "print-defmt",
-# ] }
-# rand_core = { version = "*", default-features = false }
-# static_cell = { git = "https://github.com/embassy-rs/static-cell.git" }
-
 [dependencies]
+bt-hci = { version = "*", features = ["defmt"] }
 cortex-m-rt = { version = "*" }
 cyw43 = { version = "*", features = ["bluetooth", "defmt", "firmware-logs"] }
 cyw43-pio = { version = "*", features = ["defmt"] }
@@ -86,7 +38,6 @@ embassy-net = { version = "*", features = [
   "tcp",
   "udp",
 ] }
-embassy-time = { version = "*", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "*", features = [
   "binary-info",
   "critical-section-impl",
@@ -95,10 +46,19 @@ embassy-rp = { version = "*", features = [
   "time-driver",
   "unstable-pac",
 ] }
+embassy-sync = { version = "*" }
+embassy-time = { version = "*", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-usb = "*"
+embassy-usb-logger = "*"
 heapless = { version = "*" }
+libm = "*"
+log = "*"
 panic-probe = { version = "*", features = ["print-defmt"] }
 rand_core = { version = "0.6.4" }
 static_cell = { version = "*" }
+trouble-host = { git = "https://github.com/embassy-rs/trouble.git", features = [
+  "defmt",
+] }
 
 [dev-dependencies]
 paste = "*"

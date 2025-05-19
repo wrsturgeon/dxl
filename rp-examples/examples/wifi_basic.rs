@@ -6,13 +6,17 @@ use {
     cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
     defmt_rtt as _,
     embassy_executor::Spawner,
-    embassy_net::udp::{self, UdpSocket},
+    embassy_futures::yield_now,
+    embassy_net::{
+        Ipv4Address,
+        udp::{self, UdpSocket},
+    },
     embassy_rp::{
         bind_interrupts,
         gpio::{Level, Output},
-        peripherals::{DMA_CH0, PIO0, UART1, USB},
+        peripherals::{DMA_CH0, PIO0, UART1},
         pio::{self, Pio},
-        uart, usb,
+        uart,
     },
     panic_probe as _,
     static_cell::StaticCell,
@@ -21,14 +25,13 @@ use {
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
     UART1_IRQ => uart::InterruptHandler<UART1>;
-    USBCTRL_IRQ => usb::InterruptHandler<USB>;
 });
 
-// const BAUD: u32 = 1_000_000;
+const UDP_ADDR: Ipv4Address = Ipv4Address::new(169, 254, 1, 1); // Ipv4Address::new(192, 168, 4, 1);
+const UDP_PORT: u16 = 5_000;
 
 const CYW43_POWER_MANAGEMENT: cyw43::PowerManagementMode = cyw43::PowerManagementMode::None; // cyw43::PowerManagementMode::PowerSave;
 
-const UDP_BUFFER_SIZE: usize = 256;
 const UDP_RX_BUFFER_SIZE: usize = 256;
 const UDP_TX_BUFFER_SIZE: usize = 256;
 const UDP_RX_META_SIZE: usize = 256;
@@ -91,19 +94,17 @@ async fn main(spawner: Spawner) {
         let (stack, runner) = embassy_net::new(
             net_device,
             embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-                address: embassy_net::Ipv4Cidr::new(
-                    embassy_net::Ipv4Address::new(169, 254, 1, 1),
-                    16,
-                ),
+                address: embassy_net::Ipv4Cidr::new(UDP_ADDR, 16),
                 dns_servers: heapless::Vec::new(),
                 gateway: None,
             }),
+            // embassy_net::Config::dhcpv4(Default::default()),
             NET_RESOURCES.init(embassy_net::StackResources::new()),
             rand_core::RngCore::next_u64(&mut embassy_rp::clocks::RoscRng),
         );
 
         {
-            // Wireless networking task:
+            // Wireless task:
             #[embassy_executor::task]
             async fn task(
                 mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'static>>,
@@ -121,6 +122,7 @@ async fn main(spawner: Spawner) {
 
     control.start_ap_wpa2("picomixel", "spectral", 5).await;
 
+    defmt::info!("Waiting for DHCP...");
     'wait_for_dhcp: loop {
         if let Some(config) = net_stack.config_v4() {
             defmt::info!("IP address: {}", config.address.address());
@@ -143,120 +145,14 @@ async fn main(spawner: Spawner) {
         &mut tx_buffer,
     );
 
-    match socket.bind(1234) {
+    match socket.bind(UDP_PORT) {
         Ok(()) => {}
         Err(e) => defmt::panic!("Error binding UDP socket: {}", e),
     }
 
-    /*
-    let dxl_bus = dxl_rp::bus(
-        BAUD, p.PIN_7, p.UART1, p.PIN_8, p.PIN_9, Irqs, p.DMA_CH1, p.DMA_CH2,
-    );
-    */
+    loop {
+        defmt::debug!("Main loop...");
 
-    let mut udp_buffer = [0; UDP_BUFFER_SIZE];
-
-    'main_loop: loop {
-        let (n_bytes, endpoint) = match socket.recv_from(&mut udp_buffer).await {
-            Ok(ok) => ok,
-            Err(e) => {
-                defmt::error!("Error receiving a UDP packet: {}; discarding...", e);
-                continue 'main_loop;
-            }
-        };
-        defmt::debug!("UDP packet from {}", endpoint);
-
-        let s = match core::str::from_utf8(&udp_buffer[..n_bytes]) {
-            Err(_e) => {
-                defmt::error!("Packet was not valid UTF-8: {:X}", udp_buffer[..n_bytes]);
-                continue 'main_loop;
-            }
-            Ok(ok) => ok,
-        };
-
-        let mut bytes = s.bytes();
-        match bytes.next() {
-            None => {
-                defmt::error!("Unexpected zero-size packet; discarding...");
-                continue 'main_loop;
-            }
-            Some(b'/') => {}
-            Some(other) => {
-                defmt::error!("First character was {}, not '/'; discarding...", other);
-                continue 'main_loop;
-            }
-        }
-        let mut id: u8 = 0;
-        'id: loop {
-            match bytes.next() {
-                None => {
-                    defmt::error!("Unexpected end of packet while parsing ID; discarding...");
-                    continue 'main_loop;
-                }
-                Some(b'/') => break 'id,
-                Some(c @ b'0'..=b'9') => {
-                    id = {
-                        let Some(some) = id.checked_mul(10).and_then(|i| i.checked_add(c - b'0'))
-                        else {
-                            defmt::error!("ID too large; discarding...");
-                            continue 'main_loop;
-                        };
-                        some
-                    }
-                }
-                Some(other) => {
-                    defmt::error!(
-                        "Unexpected character ({}) while parsing ID; discarding...",
-                        other
-                    );
-                    continue 'main_loop;
-                }
-            }
-        }
-        let mut pos: u16 = 0;
-        'pos: loop {
-            match bytes.next() {
-                None | Some(0) => break 'pos,
-                Some(c @ b'0'..=b'9') => {
-                    pos = {
-                        let Some(some) = pos
-                            .checked_mul(10)
-                            .and_then(|i| i.checked_add((c - b'0').into()))
-                        else {
-                            defmt::error!("Position too large; discarding...");
-                            continue 'main_loop;
-                        };
-                        some
-                    }
-                }
-                Some(other) => {
-                    defmt::error!(
-                        "Unexpected character ({}) while parsing position; discarding...",
-                        other
-                    );
-                    continue 'main_loop;
-                }
-            }
-        }
-
-        /*
-        let f_pos = pos as f32 / 65535_f32;
-        let result = match id {
-            1 => mouth_1.go_to(f_pos).await,
-            2 => mouth_2.go_to(f_pos).await,
-            3 => mouth_3.go_to(f_pos).await,
-            _ => {
-                defmt::error!("Invalid ID: {}", id);
-                continue;
-            }
-        };
-        match result {
-            Ok(()) => {}
-            Err(e) => defmt::error!(
-                "Error sending a position to the actuator: {}; discarding...",
-                e
-            ),
-        }
-        */
+        let () = yield_now().await;
     }
 }

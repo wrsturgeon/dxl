@@ -15,9 +15,8 @@ use {
     dxl_packet::stream::Stream,
     embassy_futures::yield_now,
     embassy_rp::{
-        dma, gpio, interrupt,
+        Peripheral, dma, gpio, interrupt,
         uart::{self, Uart},
-        Peripheral,
     },
     embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
     embassy_time::{Duration, TimeoutError},

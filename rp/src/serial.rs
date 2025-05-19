@@ -1,7 +1,7 @@
 use {
     embassy_futures::yield_now,
     embassy_rp::uart::{self, Uart},
-    embassy_time::{with_timeout, TimeoutError},
+    embassy_time::{TimeoutError, with_timeout},
 };
 
 #[derive(defmt::Format)]

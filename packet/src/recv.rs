@@ -127,7 +127,7 @@ impl HardwareErrorStatus {
 
 mod parse {
     use {
-        crate::{parse, New},
+        crate::{New, parse},
         core::convert::Infallible,
     };
 

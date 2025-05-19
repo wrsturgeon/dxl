@@ -1,7 +1,7 @@
 use crate::{
-    constants::{C16, C8},
-    crc::Crc,
     Instruction,
+    constants::{C8, C16},
+    crc::Crc,
 };
 
 #[repr(C, packed)]
