@@ -50,6 +50,7 @@ embassy-sync = { version = "*" }
 embassy-time = { version = "*", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-usb = "*"
 embassy-usb-logger = "*"
+embedded-io-async = { version = "*", features = ["defmt-03"] }
 heapless = { version = "*" }
 libm = "*"
 log = "*"

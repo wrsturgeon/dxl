@@ -1,4 +1,4 @@
-use crate::crc::Crc;
+// use crate::crc::Crc;
 
 #[expect(async_fn_in_trait, reason = "fuck off")]
 pub trait Stream {
@@ -18,21 +18,21 @@ impl<S: Stream> Stream for &mut S {
     }
 }
 
-pub(crate) struct WithCrc<'crc, S: Stream<Item = u8>> {
-    pub(crate) crc: &'crc mut Crc,
-    pub(crate) internal: S,
-}
-
-impl<S: Stream<Item = u8>> Stream for WithCrc<'_, S> {
-    type Item = u8;
-
-    #[inline]
-    async fn next(&mut self) -> Self::Item {
-        let byte = self.internal.next().await;
-        self.crc.push(byte);
-        byte
-    }
-}
+// pub(crate) struct WithCrc<'crc, S: Stream<Item = u8>> {
+//     pub(crate) crc: &'crc mut Crc,
+//     pub(crate) internal: S,
+// }
+//
+// impl<S: Stream<Item = u8>> Stream for WithCrc<'_, S> {
+//     type Item = u8;
+//
+//     #[inline]
+//     async fn next(&mut self) -> Self::Item {
+//         let byte = self.internal.next().await;
+//         self.crc.push(byte);
+//         byte
+//     }
+// }
 
 #[cfg(test)]
 pub(crate) struct WithLog<S: Stream>(pub(crate) S);

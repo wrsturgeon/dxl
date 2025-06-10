@@ -1,12 +1,12 @@
 use embassy_rp::gpio;
 
-pub(crate) struct PullHigh<'high, 'pin> {
+pub struct PullHigh<'high, 'pin> {
     pin: &'high mut gpio::Output<'pin>,
 }
 
 impl<'high, 'pin> PullHigh<'high, 'pin> {
     #[inline]
-    pub(crate) fn new(pin: &'high mut gpio::Output<'pin>) -> Self {
+    pub fn new(pin: &'high mut gpio::Output<'pin>) -> Self {
         let () = pin.set_high();
         Self { pin }
     }

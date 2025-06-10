@@ -6,7 +6,7 @@
     reason = "`generic_const_exprs` necessary to construct Dynamixel packets on the stack"
 )]
 
-mod pull_high;
+pub mod pull_high;
 pub mod serial;
 
 use {
