@@ -8,19 +8,20 @@ use {
     dxl_packet::stream::Stream as _,
     dxl_rp::{Comm, serial::RecvError},
     embassy_executor::Spawner,
+    embassy_futures::select::{Either, select},
     embassy_rp::{
         bind_interrupts,
         flash::{self, Flash},
+        gpio,
         peripherals::{TRNG, UART1, USB},
         trng::{self, Trng},
         uart, usb,
     },
-    embassy_time::{Duration, Instant, Timer},
+    embassy_time::{Duration, Instant, TimeoutError, Timer, with_timeout},
     embassy_usb::{
         self, Builder, UsbDevice,
         class::cdc_acm::{self, CdcAcmClass},
     },
-    embedded_io_async::Read,
     panic_probe as _,
     static_cell::StaticCell,
 };
@@ -40,6 +41,8 @@ const FLASH_START: usize = 0x10_00_00_00;
 
 const BAUD: u32 = 115_200;
 
+const DEBOUNCING_TIME: Duration = Duration::from_millis(5);
+
 #[used]
 #[unsafe(link_section = ".recording_buffer")]
 static RECORDING_BUFFER: [u8; RECORDING_BUFFER_SIZE_BYTES] = [0xFF; RECORDING_BUFFER_SIZE_BYTES];
@@ -53,6 +56,12 @@ async fn main(spawner: Spawner) {
 
     let p = embassy_rp::init(Default::default());
 
+    let mut playback_pin = gpio::Input::new(p.PIN_18, gpio::Pull::Up);
+    let () = playback_pin.set_schmitt(true);
+
+    let mut record_switch = gpio::Input::new(p.PIN_19, gpio::Pull::Up);
+    let () = record_switch.set_schmitt(true);
+
     let recording_slots: &[[u8; RECORDING_SLOT_SIZE_BYTES]; N_RECORDING_SLOTS] =
         unsafe { &*(&RECORDING_BUFFER as *const [u8; RECORDING_BUFFER_SIZE_BYTES]).cast() };
     let recording_slot_offsets = recording_slots.each_ref().map(
@@ -64,7 +73,7 @@ async fn main(spawner: Spawner) {
         },
     );
     let mut n_slots_initialized: u8 = 0;
-    let mut slot_to_overwrite: u8 = defmt::unwrap!(u8::try_from(N_RECORDING_SLOTS));
+    let mut selected_recording_slot: u8 = 0;
 
     let mut flash = Flash::<_, _, FLASH_SIZE_BYTES>::new(p.FLASH, p.DMA_CH0);
     for (i, &offset) in recording_slot_offsets.iter().enumerate() {
@@ -80,9 +89,6 @@ async fn main(spawner: Spawner) {
                 Ok(()) => defmt::info!("    done"),
                 Err(e) => defmt::error!("    ERROR: {}", e),
             }
-            if slot_to_overwrite == defmt::unwrap!(u8::try_from(N_RECORDING_SLOTS)) {
-                slot_to_overwrite = defmt::unwrap!(u8::try_from(i));
-            }
         }
     }
 
@@ -91,23 +97,6 @@ async fn main(spawner: Spawner) {
     );
 
     let mut rng = Trng::new(p.TRNG, Irqs, trng::Config::default());
-
-    if n_slots_initialized == 0 {
-        defmt::info!("No slots initialized; skipping playback...")
-    } else {
-        'slot_indices: loop {
-            let slot_index = rng.blocking_next_u32() as u8 % n_slots_initialized;
-            let slot_offset =
-                offset_of_nth_initialized_slot(&mut flash, &recording_slot_offsets, slot_index)
-                    .await;
-            let Some(slot_offset) = slot_offset else {
-                defmt::error!("Invalid slot index; retrying...");
-                continue 'slot_indices;
-            };
-            let () = play_slot_by_offset(&mut dxl_comm, &mut flash, slot_offset).await;
-            break 'slot_indices;
-        }
-    }
 
     // Create the USB driver from the HAL.
     let cdc_acm_driver = usb::Driver::new(p.USB, Irqs);
@@ -150,52 +139,73 @@ async fn main(spawner: Spawner) {
             runner.run().await
         }
         let () = match spawner.spawn(task(cdc_acm_runner)) {
-            Ok(()) => defmt::info!("Spawned USB task"),
+            Ok(()) => defmt::debug!("Spawned USB task"),
             Err(e) => defmt::panic!("Error spawning USB task: {}", e),
         };
     }
 
     let (mut usb_tx, mut usb_rx) = cdc_acm_class.split();
 
-    'main_loop: loop {
-        defmt::info!("Waiting for a USB connection...");
-        let () = usb_rx.wait_connection().await;
-        defmt::info!("    USB connected!");
-
-        'slots: loop {
-            if slot_to_overwrite >= defmt::unwrap!(u8::try_from(N_RECORDING_SLOTS)) {
-                slot_to_overwrite = 0;
-                defmt::debug!("Wrapping around to slot {}...", slot_to_overwrite);
+    let mut record_switch_ever_used = false;
+    loop {
+        let button_pressed = select(
+            wait_for_low_debounced(&mut record_switch),
+            wait_for_low_debounced(&mut playback_pin),
+        );
+        match button_pressed.await {
+            Either::First(()) => {
+                let () = trigger_recording(
+                    &mut selected_recording_slot,
+                    &mut n_slots_initialized,
+                    &mut record_switch,
+                    &mut usb_rx,
+                    &mut usb_tx,
+                    &mut dxl_comm,
+                    &mut flash,
+                    &recording_slot_offsets,
+                )
+                .await;
+                record_switch_ever_used = true;
             }
-
-            let slot_offset = offset_of_nth_uninitialized_slot(
-                &mut flash,
-                &recording_slot_offsets,
-                slot_to_overwrite,
-            )
-            .await;
-            let slot_offset = slot_offset
-                .unwrap_or_else(|| recording_slot_offsets[usize::from(slot_to_overwrite)]);
-
-            defmt::warn!("Overwriting slot #{} on USB input...", slot_to_overwrite);
-            let result = record_into_slot_by_offset(
-                &mut usb_rx,
-                &mut usb_tx,
-                &mut dxl_comm,
-                &mut flash,
-                slot_offset,
-            )
-            .await;
-
-            slot_to_overwrite += 1;
-
-            match result {
-                Ok(()) => {}
-                Err(()) => break 'slots,
+            Either::Second(()) => {
+                let () = trigger_playback(
+                    &mut selected_recording_slot,
+                    n_slots_initialized,
+                    record_switch_ever_used,
+                    &mut dxl_comm,
+                    &mut flash,
+                    &recording_slot_offsets,
+                    &mut rng,
+                )
+                .await;
             }
         }
+    }
+}
 
-        defmt::error!("USB seems to have disconnected.");
+#[inline]
+async fn wait_for_low_debounced(input: &mut gpio::Input<'_>) {
+    let () = input.wait_for_falling_edge().await;
+    loop {
+        let () = input.wait_for_low().await;
+        let trigger_unless_canceled = with_timeout(DEBOUNCING_TIME, input.wait_for_high()).await;
+        match trigger_unless_canceled {
+            Ok(()) => { /* Canceled by a rising edge! */ }
+            Err(TimeoutError) => return,
+        }
+    }
+}
+
+#[inline]
+async fn wait_for_high_debounced(input: &mut gpio::Input<'_>) {
+    let () = input.wait_for_rising_edge().await;
+    loop {
+        let () = input.wait_for_high().await;
+        let trigger_unless_canceled = with_timeout(DEBOUNCING_TIME, input.wait_for_low()).await;
+        match trigger_unless_canceled {
+            Ok(()) => { /* Canceled by a falling edge! */ }
+            Err(TimeoutError) => return,
+        }
     }
 }
 
@@ -220,12 +230,12 @@ async fn offset_of_nth_initialized_slot<T: flash::Instance, const FLASH_SIZE: us
     flash: &mut Flash<'_, T, flash::Async, FLASH_SIZE>,
     recording_slot_offsets: &[u32; N_RECORDING_SLOTS],
     n: u8,
-) -> Option<u32> {
+) -> Option<(u8, u32)> {
     let mut slots_seen = 0;
-    for &offset in recording_slot_offsets {
+    for (i, &offset) in recording_slot_offsets.iter().enumerate() {
         if slot_is_initialized(flash, offset).await {
             if slots_seen == n {
-                return Some(offset);
+                return Some((defmt::unwrap!(u8::try_from(i)),offset));
             }
             slots_seen += 1;
         }
@@ -234,39 +244,250 @@ async fn offset_of_nth_initialized_slot<T: flash::Instance, const FLASH_SIZE: us
 }
 
 #[inline]
-async fn offset_of_nth_uninitialized_slot<T: flash::Instance, const FLASH_SIZE: usize>(
+async fn offset_of_first_empty_slot<T: flash::Instance, const FLASH_SIZE: usize>(
     flash: &mut Flash<'_, T, flash::Async, FLASH_SIZE>,
     recording_slot_offsets: &[u32; N_RECORDING_SLOTS],
-    n: u8,
-) -> Option<u32> {
-    let mut slots_seen = 0;
-    for &offset in recording_slot_offsets {
+) -> Option<(u8, u32)> {
+    for (i, &offset) in recording_slot_offsets.iter().enumerate() {
         if !slot_is_initialized(flash, offset).await {
-            if slots_seen == n {
-                return Some(offset);
-            }
-            slots_seen += 1;
+            return Some((defmt::unwrap!(u8::try_from(i)), offset));
         }
     }
     None
 }
 
 #[inline]
-async fn play_slot_by_offset<
+async fn trigger_recording<
+    'usb,
+    UsbDriver: embassy_usb_driver::Driver<'usb>,
     HardwareUart: uart::Instance,
     FlashInstance: flash::Instance,
     const FLASH_SIZE: usize,
 >(
+    selected_recording_slot: &mut u8,
+    n_slots_initialized: &mut u8,
+    stop_if_high: &mut gpio::Input<'_>,
+    usb_rx: &mut cdc_acm::Receiver<'usb, UsbDriver>,
+    usb_tx: &mut cdc_acm::Sender<'usb, UsbDriver>,
     dxl_comm: &mut Comm<'_, '_, HardwareUart>,
     flash: &mut Flash<'_, FlashInstance, flash::Async, FLASH_SIZE>,
-    offset: u32,
+    recording_slot_offsets: &[u32; N_RECORDING_SLOTS],
 ) {
-    defmt::info!("Playing back...");
+    // If there's an empty recording slot, record into that;
+    // if not, stay where we are, unless we switch back without input, in which case advance one.
+    let maybe_theres_an_empty_slot =
+        offset_of_first_empty_slot(flash, &recording_slot_offsets).await;
+    let offset = match maybe_theres_an_empty_slot {
+        Some((slot_index, offset)) => {
+            *selected_recording_slot = slot_index;
+            defmt::info!(
+                "Slot #{} was empty; recording into it.",
+                *selected_recording_slot
+            );
+            offset
+        }
+        None => {
+            defmt::warn!(
+                "No empty recording slots! OVERWRITING slot #{}.",
+                *selected_recording_slot
+            );
+            recording_slot_offsets[usize::from(*selected_recording_slot)]
+        }
+    };
+    let mut end = offset;
+
+    let mut got_anything_over_usb = false;
+
+    let do_until_switched_off = async {
+        defmt::info!("Waiting for a USB connection...");
+        let () = usb_rx.wait_connection().await;
+        defmt::info!("    USB connected!");
+
+        let mut first_packet_instant = None;
+        let mut rx_buffer = [0; 64];
+        let mut tx_buffer = [0xFF; 4 /* header bytes */ + 255 /* maximum packet length */];
+        'packets: loop {
+            let n = match usb_rx.read_packet(&mut rx_buffer).await {
+                Ok(ok) => ok,
+                Err(e) => {
+                    defmt::error!("Error receiving via USB: {}", e);
+                    break 'packets;
+                }
+            };
+            let packet_from_usb = &rx_buffer[..n];
+            defmt::debug!("Received `{:X}` via USB", packet_from_usb);
+            if n <= 0 {
+                break 'packets;
+            }
+
+            let timestamp: [u8; 3] = {
+                let ms = first_packet_instant
+                    .get_or_insert_with(Instant::now)
+                    .elapsed()
+                    .as_millis();
+                if ms > 0xFF_FF_FF {
+                    defmt::error!(
+                        "Recording is too long (in total duration, not packets). Stopping."
+                    );
+                    break 'packets;
+                }
+                let [b1, b2, b3, ..] = ms.to_le_bytes();
+                [b1, b2, b3]
+            };
+
+            let mut stream = match dxl_comm.comm(packet_from_usb).await {
+                Ok(ok) => {
+                    defmt::debug!("Sent `{:X}` via UART", packet_from_usb);
+                    ok
+                }
+                Err(e) => {
+                    defmt::error!("Error sending via UART: {}", e);
+                    continue 'packets;
+                }
+            };
+
+            'response: loop {
+                let byte: u8 = match stream.next().await {
+                    Ok(ok) => {
+                        defmt::debug!("Received `{:X}` via UART", ok);
+                        ok
+                    }
+                    Err(RecvError::TimedOut(_)) => break 'response,
+                    Err(e) => {
+                        defmt::error!("Error receiving via UART: {}", e);
+                        continue 'response;
+                    }
+                };
+                let packet = &[byte];
+                match usb_tx.write_packet(packet).await {
+                    Ok(()) => defmt::debug!("Wrote `{:X}` via USB", packet),
+                    Err(e) => defmt::error!("Error sending via USB: {}", e),
+                }
+            }
+
+            let data_size = {
+                let big_size = packet_from_usb.len();
+                let Ok(small_size) = u8::try_from(big_size) else {
+                    defmt::error!(
+                        "Packet too big ({} bytes). Skipping that packet, but continuing the recording.",
+                        big_size
+                    );
+                    continue 'packets;
+                };
+                small_size
+            };
+            let store_size = 4 /* header bytes */ + u32::from(data_size);
+
+            let start = end;
+            let aligned_size = if (store_size & 7) != 0 {
+                (store_size & !7) + 8
+            } else {
+                store_size
+            };
+            if end + aligned_size + 4 > offset + defmt::unwrap!(u32::try_from(RECORDING_SLOT_SIZE_BYTES)) {
+                defmt::error!("Ran out of space in this recording spot. Stopping.");
+                break 'packets;
+            }
+            end += aligned_size;
+
+            tx_buffer[..3].copy_from_slice(&timestamp);
+            tx_buffer[3] = data_size;
+            tx_buffer[4..defmt::unwrap!(usize::try_from(store_size))]
+                .copy_from_slice(packet_from_usb);
+            let valid_buffer = &tx_buffer[..defmt::unwrap!(usize::try_from(store_size))];
+            match flash.blocking_write(start, valid_buffer) {
+                Ok(()) => defmt::debug!("Wrote {:X} to flash", valid_buffer),
+                Err(e) => defmt::error!("Couldn't write {:X} to flash: {}", valid_buffer, e),
+            }
+
+            if !got_anything_over_usb /* yet, meaning this is the first */ {
+                defmt::info!("USB input receieved! Recording...");
+                got_anything_over_usb = true;
+                *n_slots_initialized += 1;
+            }
+        }
+    };
+
+    match select(do_until_switched_off, wait_for_high_debounced(stop_if_high)).await {
+        Either::First(()) => defmt::info!("Recording finished."),
+        Either::Second(()) => defmt::info!("Recording interrupted by switching off."),
+    }
+    if got_anything_over_usb {
+        let valid_buffer = &[0, 0, 0, 0];
+        match flash.blocking_write(end, valid_buffer) {
+            Ok(()) => defmt::debug!("Wrote {:X} to flash", valid_buffer),
+            Err(e) => defmt::error!("Couldn't write {:X} to flash: {}", valid_buffer, e),
+        }
+    } else {
+        // Increment the slot index,
+        // so we can flip the switch a few times to cycle through them:
+        *selected_recording_slot += 1;
+        if *selected_recording_slot >= defmt::unwrap!(u8::try_from(N_RECORDING_SLOTS)) {
+            *selected_recording_slot = 0;
+            defmt::debug!("Wrapping around to slot {}...", *selected_recording_slot);
+        }
+        let offset = recording_slot_offsets[usize::from(*selected_recording_slot)];
+        defmt::info!(
+            "Selected recording slot #{}, which {}.",
+            *selected_recording_slot,
+            if slot_is_initialized(flash, offset).await {
+                "already has a saved perfomance"
+            } else {
+                "is empty"
+            }
+        );
+    }
+}
+
+#[inline]
+async fn trigger_playback<
+    HardwareUart: uart::Instance,
+    FlashInstance: flash::Instance,
+    const FLASH_SIZE: usize,
+    TrngInstance: trng::Instance,
+>(
+    selected_recording_slot: &mut u8,
+    n_slots_initialized: u8,
+    record_switch_ever_used: bool,
+    dxl_comm: &mut Comm<'_, '_, HardwareUart>,
+    flash: &mut Flash<'_, FlashInstance, flash::Async, FLASH_SIZE>,
+    recording_slot_offsets: &[u32; N_RECORDING_SLOTS],
+    rng: &mut Trng<'_, TrngInstance>,
+) {
+    if n_slots_initialized == 0 {
+        defmt::warn!("No slots initialized; skipping playback.");
+        return;
+    }
+
+    let mut offset = recording_slot_offsets[usize::from(*selected_recording_slot)];
+    if !record_switch_ever_used {
+        'select_another_slot: loop {
+            let index_among_initialized_only = rng.blocking_next_u32() as u8 % n_slots_initialized;
+            let opt = offset_of_nth_initialized_slot(flash, recording_slot_offsets, index_among_initialized_only).await;
+            let (slot_index, slot_offset) = defmt::unwrap!(opt);
+            *selected_recording_slot = slot_index;
+            offset = slot_offset;
+            if slot_is_initialized(flash, offset).await {
+                break 'select_another_slot;
+            }
+        }
+    } else if !slot_is_initialized(flash, offset).await {
+        defmt::error!(
+            "This slot (#{}) is empty, so it can't be played back; skipping.",
+            *selected_recording_slot
+        );
+        return;
+    }
+
+    defmt::info!(
+        "Playing the recording found in slot #{}...",
+        *selected_recording_slot
+    );
+
     let mut buffer = [0xFF; 4 /* header bytes */ + 255 /* maximum packet length */];
     let start_instant = Instant::now();
-    let mut end = offset;
     'packets: loop {
-        let start = end;
+        let start = offset;
         'flash_read: loop {
             match flash.read(start, &mut buffer[..8]).await {
                 Ok(()) => break 'flash_read,
@@ -275,11 +496,14 @@ async fn play_slot_by_offset<
                 }
             }
         }
-        defmt::info!("Recorded packet header: {:X}", buffer[..8]);
 
         let [b1, b2, b3, b4, ..] = buffer;
         let header = u32::from_le_bytes([b1, b2, b3, b4]);
         let data_size = defmt::unwrap!(u8::try_from(header >> 24));
+        if data_size == 0 {
+            defmt::info!("Reached the end of this recording.");
+            return;
+        }
         let aligned_size = {
             let size = 4 + u32::from(data_size);
             if (size & 7) == 0 {
@@ -288,7 +512,7 @@ async fn play_slot_by_offset<
                 (size & !7) + 8
             }
         };
-        end += aligned_size;
+        offset += aligned_size;
 
         'flash_read: loop {
             match flash
@@ -306,17 +530,9 @@ async fn play_slot_by_offset<
         }
 
         let packet_to_dxl = &buffer[4..(4 + usize::from(data_size))];
-        defmt::info!(
-            "Entire buffer read from flash: {:X} (from {} to {})",
-            buffer[..defmt::unwrap!(usize::try_from(aligned_size))],
-            start,
-            start + aligned_size
-        );
 
         let ms = header & 0xFF_FF_FF;
-        defmt::info!("Waiting for {} milliseconds...", ms);
         let () = Timer::at(start_instant + Duration::from_millis(u64::from(ms))).await;
-        defmt::info!("    it fucken time");
 
         let mut stream = match dxl_comm.comm(packet_to_dxl).await {
             Ok(ok) => {
@@ -330,128 +546,14 @@ async fn play_slot_by_offset<
         };
 
         'response: loop {
-            let byte: u8 = match stream.next().await {
-                Ok(ok) => {
-                    defmt::debug!("Received `{:X}` via UART", ok);
-                    ok
-                }
+            match stream.next().await {
+                Ok(ok) => defmt::debug!("Received `{:X}` via UART", ok),
                 Err(RecvError::TimedOut(_)) => break 'response,
                 Err(e) => {
                     defmt::error!("Error receiving via UART: {}", e);
                     continue 'response;
                 }
             };
-        }
-    }
-}
-
-#[inline]
-async fn record_into_slot_by_offset<
-    'usb,
-    UsbDriver: embassy_usb_driver::Driver<'usb>,
-    HardwareUart: uart::Instance,
-    FlashInstance: flash::Instance,
-    const FLASH_SIZE: usize,
->(
-    usb_rx: &mut cdc_acm::Receiver<'usb, UsbDriver>,
-    usb_tx: &mut cdc_acm::Sender<'usb, UsbDriver>,
-    dxl_comm: &mut Comm<'_, '_, HardwareUart>,
-    flash: &mut Flash<'_, FlashInstance, flash::Async, FLASH_SIZE>,
-    offset: u32,
-) -> Result<(), ()> {
-    let mut first_packet_instant = None;
-    let mut end = offset;
-    let mut rx_buffer = [0; 64];
-    let mut tx_buffer = [0xFF; 4 /* header bytes */ + 255 /* maximum packet length */];
-    'packets: loop {
-        let n = match usb_rx.read_packet(&mut rx_buffer).await {
-            Ok(ok) => ok,
-            Err(e) => {
-                defmt::error!("Error receiving via USB: {}", e);
-                return Err(());
-            }
-        };
-        let packet_from_usb = &rx_buffer[..n];
-        defmt::debug!("Received `{:X}` via USB", packet_from_usb);
-        if n <= 0 {
-            return Err(());
-        }
-
-        let timestamp: [u8; 3] = {
-            let ms = first_packet_instant
-                .get_or_insert_with(Instant::now)
-                .elapsed()
-                .as_millis();
-            if ms > 0xFF_FF_FF {
-                defmt::error!("Recording is too long (in total duration, not packets). Stopping.");
-                return Ok(());
-            }
-            let [b1, b2, b3, ..] = ms.to_le_bytes();
-            [b1, b2, b3]
-        };
-
-        let mut stream = match dxl_comm.comm(packet_from_usb).await {
-            Ok(ok) => {
-                defmt::debug!("Sent `{:X}` via UART", packet_from_usb);
-                ok
-            }
-            Err(e) => {
-                defmt::error!("Error sending via UART: {}", e);
-                continue 'packets;
-            }
-        };
-
-        'response: loop {
-            let byte: u8 = match stream.next().await {
-                Ok(ok) => {
-                    defmt::debug!("Received `{:X}` via UART", ok);
-                    ok
-                }
-                Err(RecvError::TimedOut(_)) => break 'response,
-                Err(e) => {
-                    defmt::error!("Error receiving via UART: {}", e);
-                    continue 'response;
-                }
-            };
-            let packet = &[byte];
-            match usb_tx.write_packet(packet).await {
-                Ok(()) => defmt::debug!("Wrote `{:X}` via USB", packet),
-                Err(e) => defmt::error!("Error sending via USB: {}", e),
-            }
-        }
-
-        let data_size = {
-            let big_size = packet_from_usb.len();
-            let Ok(small_size) = u8::try_from(big_size) else {
-                defmt::error!(
-                    "Packet too big ({} bytes). Skipping that packet, but continuing the recording.",
-                    big_size
-                );
-                continue 'packets;
-            };
-            small_size
-        };
-        let mut store_size = 4 /* header bytes */ + u32::from(data_size);
-
-        let start = end;
-        let aligned_size = if (store_size & 7) != 0 {
-            (store_size & !7) + 8
-        } else {
-            store_size
-        };
-        end += aligned_size;
-        if end > offset + defmt::unwrap!(u32::try_from(RECORDING_SLOT_SIZE_BYTES)) {
-            defmt::error!("Ran out of space in this recording spot. Stopping.");
-            return Ok(());
-        }
-
-        tx_buffer[..3].copy_from_slice(&timestamp);
-        tx_buffer[3] = data_size;
-        tx_buffer[4..defmt::unwrap!(usize::try_from(store_size))].copy_from_slice(packet_from_usb);
-        let valid_buffer = &tx_buffer[..defmt::unwrap!(usize::try_from(store_size))];
-        match flash.blocking_write(start, valid_buffer) {
-            Ok(()) => defmt::info!("Wrote {:X} to flash", valid_buffer),
-            Err(e) => defmt::error!("Couldn't write {:X} to flash: {}", valid_buffer, e),
         }
     }
 }
