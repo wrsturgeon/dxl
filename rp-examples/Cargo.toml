@@ -49,6 +49,7 @@ embassy-rp = { version = "*", features = [
 embassy-sync = { version = "*" }
 embassy-time = { version = "*", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-usb = "*"
+embassy-usb-driver = "*"
 embassy-usb-logger = "*"
 embedded-io-async = { version = "*", features = ["defmt-03"] }
 heapless = { version = "*" }

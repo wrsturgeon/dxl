@@ -10,6 +10,7 @@ runner = [
   "--log-format",
   "[{L} at {t}s] {s:severity:bold}   {from {F}:{l}%dimmed%italic}",
 ]
+rustflags = ["-Cforce-frame-pointers", "-Cforce-unwind-tables"]
 
 [build]
 target = "thumbv8m.main-none-eabihf"
@@ -19,8 +20,9 @@ target = "thumbv8m.main-none-eabihf"
 # DEFMT_LOG = "debug"
 DEFMT_LOG = "info"
 RUST_BACKTRACE = "1"
-RUSTFLAGS = "-Zmacro-backtrace"
+# RUSTFLAGS = "-Zmacro-backtrace"
 
 [unstable]
 build-std = ["core"]
 # build-std-features = ["panic_immediate_abort"]
+unstable-options = true

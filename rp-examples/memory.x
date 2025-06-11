@@ -4,7 +4,7 @@ MEMORY {
      *
      * 2 MiB is a safe default here, although a Pico 2 has 4 MiB.
      */
-    FLASH : ORIGIN = 0x10000000, LENGTH = 2048K
+    FLASH : ORIGIN = 0x10000000, LENGTH = /* 2048K */ 4096K
     /*
      * RAM consists of 8 banks, SRAM0-SRAM7, with a striped mapping.
      * This is usually good for performance, as it distributes load on
@@ -68,8 +68,18 @@ SECTIONS {
         __end_block_addr = .;
         KEEP(*(.end_block));
     } > FLASH
-
 } INSERT AFTER .uninit;
+
+SECTIONS {
+    /* ### Persistent Recording Buffer
+     *
+     * Lives in flash after everything else. Needs to be aligned so it can be erased.
+     */
+    .recording_buffer (NOLOAD) : ALIGN(4096)
+    {
+        KEEP(*(.recording_buffer));
+    } > FLASH
+} INSERT AFTER .end_block;
 
 PROVIDE(start_to_end = __end_block_addr - __start_block_addr);
 PROVIDE(end_to_start = __start_block_addr - __end_block_addr);
