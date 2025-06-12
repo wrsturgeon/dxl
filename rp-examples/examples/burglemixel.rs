@@ -32,8 +32,8 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => usb::InterruptHandler<USB>;
 });
 
-const N_RECORDING_SLOTS: usize = 8;
-const RECORDING_SLOT_SIZE_BYTES: usize = 1_usize << 18;
+const N_RECORDING_SLOTS: usize = 1;
+const RECORDING_SLOT_SIZE_BYTES: usize = 1_usize << (18 + 3);
 const RECORDING_BUFFER_SIZE_BYTES: usize = N_RECORDING_SLOTS * RECORDING_SLOT_SIZE_BYTES;
 const FLASH_SIZE_MIB: usize = 4096;
 const FLASH_SIZE_BYTES: usize = FLASH_SIZE_MIB * 1024;
@@ -235,7 +235,7 @@ async fn offset_of_nth_initialized_slot<T: flash::Instance, const FLASH_SIZE: us
     for (i, &offset) in recording_slot_offsets.iter().enumerate() {
         if slot_is_initialized(flash, offset).await {
             if slots_seen == n {
-                return Some((defmt::unwrap!(u8::try_from(i)),offset));
+                return Some((defmt::unwrap!(u8::try_from(i)), offset));
             }
             slots_seen += 1;
         }
@@ -255,6 +255,15 @@ async fn offset_of_first_empty_slot<T: flash::Instance, const FLASH_SIZE: usize>
     }
     None
 }
+
+// #[derive(defmt::Format)]
+// enum ParseDxlHeader {
+//     Init,
+//     FirstFf,
+//     SecondFf,
+//     Fd,
+//     Countdown(u8),
+// }
 
 #[inline]
 async fn trigger_recording<
@@ -346,6 +355,7 @@ async fn trigger_recording<
                 }
             };
 
+            // let mut parse_state = ParseDxlHeader::Init;
             'response: loop {
                 let byte: u8 = match stream.next().await {
                     Ok(ok) => {
@@ -363,6 +373,42 @@ async fn trigger_recording<
                     Ok(()) => defmt::debug!("Wrote `{:X}` via USB", packet),
                     Err(e) => defmt::error!("Error sending via USB: {}", e),
                 }
+                // match parse_state {
+                //     ParseDxlHeader::Init => {
+                //         if byte == 0xFF {
+                //             parse_state = ParseDxlHeader::FirstFf
+                //         }
+                //     }
+                //     ParseDxlHeader::FirstFf => {
+                //         parse_state = if byte == 0xFF {
+                //             ParseDxlHeader::SecondFf
+                //         } else {
+                //             ParseDxlHeader::Init
+                //         }
+                //     }
+                //     ParseDxlHeader::SecondFf => {
+                //         parse_state = if byte == 0xFD {
+                //             ParseDxlHeader::Fd
+                //         } else {
+                //             ParseDxlHeader::Init
+                //         }
+                //     }
+                //     ParseDxlHeader::Fd => {
+                //         parse_state = if byte == 0x00 {
+                //             ParseDxlHeader::Countdown(4)
+                //         } else {
+                //             ParseDxlHeader::Init
+                //         }
+                //     }
+                //     ParseDxlHeader::Countdown(i) => {
+                //         parse_state = if let Some(i) = i.checked_sub(1) {
+                //             ParseDxlHeader::Countdown(i)
+                //         } else {
+                //             defmt::error!("Dynamixel packet error: {:X}", byte);
+                //             ParseDxlHeader::Init
+                //         }
+                //     }
+                // }
             }
 
             let data_size = {
@@ -384,7 +430,9 @@ async fn trigger_recording<
             } else {
                 store_size
             };
-            if end + aligned_size + 4 > offset + defmt::unwrap!(u32::try_from(RECORDING_SLOT_SIZE_BYTES)) {
+            if end + aligned_size + 4
+                > offset + defmt::unwrap!(u32::try_from(RECORDING_SLOT_SIZE_BYTES))
+            {
                 defmt::error!("Ran out of space in this recording spot. Stopping.");
                 break 'packets;
             }
@@ -400,7 +448,9 @@ async fn trigger_recording<
                 Err(e) => defmt::error!("Couldn't write {:X} to flash: {}", valid_buffer, e),
             }
 
-            if !got_anything_over_usb /* yet, meaning this is the first */ {
+            if !got_anything_over_usb
+            /* yet, meaning this is the first */
+            {
                 defmt::info!("USB input receieved! Recording...");
                 got_anything_over_usb = true;
                 *n_slots_initialized += 1;
@@ -463,7 +513,12 @@ async fn trigger_playback<
     if !record_switch_ever_used {
         'select_another_slot: loop {
             let index_among_initialized_only = rng.blocking_next_u32() as u8 % n_slots_initialized;
-            let opt = offset_of_nth_initialized_slot(flash, recording_slot_offsets, index_among_initialized_only).await;
+            let opt = offset_of_nth_initialized_slot(
+                flash,
+                recording_slot_offsets,
+                index_among_initialized_only,
+            )
+            .await;
             let (slot_index, slot_offset) = defmt::unwrap!(opt);
             *selected_recording_slot = slot_index;
             offset = slot_offset;
@@ -546,8 +601,11 @@ async fn trigger_playback<
         };
 
         'response: loop {
-            match stream.next().await {
-                Ok(ok) => defmt::debug!("Received `{:X}` via UART", ok),
+            let byte: u8 = match stream.next().await {
+                Ok(ok) => {
+                    defmt::debug!("Received `{:X}` via UART", ok);
+                    ok
+                }
                 Err(RecvError::TimedOut(_)) => break 'response,
                 Err(e) => {
                     defmt::error!("Error receiving via UART: {}", e);
