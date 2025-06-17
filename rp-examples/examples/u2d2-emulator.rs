@@ -31,7 +31,7 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
 
-const BAUD: u32 = 115_200;
+const BAUD: u32 = 1_000_000; // 115_200;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {

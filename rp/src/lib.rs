@@ -129,6 +129,11 @@ impl<'tx_en, 'uart, HardwareUart: uart::Instance> dxl_driver::comm::Comm
     async fn yield_to_other_tasks() {
         let () = yield_now().await;
     }
+
+    #[inline]
+    fn listen<'rx>(&'rx mut self) -> impl 'rx + Stream<Item = Result<u8, Self::RecvError>> {
+        serial::RxStream::new(&mut self.uart)
+    }
 }
 
 pub struct Mutex<Item>(embassy_sync::mutex::Mutex<CriticalSectionRawMutex, Item>);

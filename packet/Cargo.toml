@@ -13,7 +13,8 @@ edition = "2024"
 # strum_macros = { git = "https://github.com/peternator7/strum.git", default-features = false }
 
 [dependencies]
-defmt = { version = "*" }
+defmt = "*"
+enum-repr = "*"
 
 [dev-dependencies]
 quickcheck = { version = "*", default-features = false }

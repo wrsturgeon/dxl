@@ -1,4 +1,5 @@
 use {
+    core::fmt,
     embassy_futures::yield_now,
     embassy_rp::uart::{self, Uart},
     embassy_time::{TimeoutError, with_timeout},
@@ -8,6 +9,22 @@ use {
 pub enum RecvError {
     TimedOut(TimeoutError),
     Uart(uart::Error),
+}
+
+impl fmt::Display for RecvError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::TimedOut(embassy_time::TimeoutError) => write!(f, "Serial read timed out"),
+            Self::Uart(e) => match e {
+                uart::Error::Break => write!(f, "UART break"),
+                uart::Error::Overrun => write!(f, "UART overrun"),
+                uart::Error::Parity => write!(f, "UART parity mismatch"),
+                uart::Error::Framing => write!(f, "UART frame missing stop bit"),
+                _ => write!(f, "UART error (unrecognized)"),
+            },
+        }
+    }
 }
 
 pub(crate) struct RxStream<'lock, 'uart, HardwareUart: uart::Instance> {

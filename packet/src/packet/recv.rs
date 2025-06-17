@@ -1,4 +1,7 @@
-use crate::{Instruction, New, crc::Crc, parse, recv};
+use {
+    crate::{Instruction, New, crc::Crc, parse, recv},
+    core::fmt,
+};
 
 #[repr(u8)]
 #[non_exhaustive]
@@ -55,6 +58,36 @@ impl defmt::Format for SoftwareError {
     }
 }
 
+impl fmt::Display for SoftwareError {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::ResultFail => write!(f, "Actuator could not process the packet"),
+            Self::InstructionError => write!(
+                f,
+                "Either the actuator did not recognize the instruction byte or it received `Action` without `RegWrite`"
+            ),
+            Self::CrcError => write!(
+                f,
+                "Actuator disagrees about CRC calculation (likely a corrupted packet)"
+            ),
+            Self::DataRangeError => write!(
+                f,
+                "Data to be written is too long to fit in the specified range of memory"
+            ),
+            Self::DataLengthError => write!(
+                f,
+                "Data to be written is too short to fit in the specified range of memory"
+            ),
+            Self::DataLimitError => write!(f, "Data out of range"),
+            Self::AccessError => write!(
+                f,
+                "Couldn't write (either tried to write to EEPROM with torque enabled, tried to write to read-only memory, or tried to read from write-only memory)"
+            ),
+        }
+    }
+}
+
 #[derive(defmt::Format)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct InvalidSoftwareError {
@@ -63,7 +96,7 @@ pub struct InvalidSoftwareError {
 
 impl SoftwareError {
     #[inline]
-    fn check(byte: u8) -> Result<Option<Self>, InvalidSoftwareError> {
+    pub fn check(byte: u8) -> Result<Option<Self>, InvalidSoftwareError> {
         match byte & 0x7F {
             0x00 => Ok(None),
             0x01 => Ok(Some(Self::ResultFail)),

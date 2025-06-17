@@ -59,9 +59,6 @@ async fn main(spawner: Spawner) {
     let mut playback_pin = gpio::Input::new(p.PIN_18, gpio::Pull::Up);
     let () = playback_pin.set_schmitt(true);
 
-    let mut record_switch = gpio::Input::new(p.PIN_19, gpio::Pull::Up);
-    let () = record_switch.set_schmitt(true);
-
     let recording_slots: &[[u8; RECORDING_SLOT_SIZE_BYTES]; N_RECORDING_SLOTS] =
         unsafe { &*(&RECORDING_BUFFER as *const [u8; RECORDING_BUFFER_SIZE_BYTES]).cast() };
     let recording_slot_offsets = recording_slots.each_ref().map(
@@ -81,14 +78,7 @@ async fn main(spawner: Spawner) {
             defmt::info!("Recording slot #{} has a recording stored!", i);
             n_slots_initialized += 1;
         } else {
-            defmt::info!("Recording slot #{} is not in a known state; erasing...", i);
-            match flash.blocking_erase(
-                offset,
-                offset + defmt::unwrap!(u32::try_from(RECORDING_SLOT_SIZE_BYTES)),
-            ) {
-                Ok(()) => defmt::info!("    done"),
-                Err(e) => defmt::error!("    ERROR: {}", e),
-            }
+            defmt::info!("Recording slot #{} is not in a known state.", i);
         }
     }
 
@@ -146,40 +136,17 @@ async fn main(spawner: Spawner) {
 
     let (mut usb_tx, mut usb_rx) = cdc_acm_class.split();
 
-    let mut record_switch_ever_used = false;
     loop {
-        let button_pressed = select(
-            wait_for_low_debounced(&mut record_switch),
-            wait_for_low_debounced(&mut playback_pin),
-        );
-        match button_pressed.await {
-            Either::First(()) => {
-                let () = trigger_recording(
-                    &mut selected_recording_slot,
-                    &mut n_slots_initialized,
-                    &mut record_switch,
-                    &mut usb_rx,
-                    &mut usb_tx,
-                    &mut dxl_comm,
-                    &mut flash,
-                    &recording_slot_offsets,
-                )
-                .await;
-                record_switch_ever_used = true;
-            }
-            Either::Second(()) => {
-                let () = trigger_playback(
-                    &mut selected_recording_slot,
-                    n_slots_initialized,
-                    record_switch_ever_used,
-                    &mut dxl_comm,
-                    &mut flash,
-                    &recording_slot_offsets,
-                    &mut rng,
-                )
-                .await;
-            }
-        }
+        let () = wait_for_low_debounced(&mut playback_pin).await;
+        let () = trigger_playback(
+            &mut selected_recording_slot,
+            n_slots_initialized,
+            &mut dxl_comm,
+            &mut flash,
+            &recording_slot_offsets,
+            &mut rng,
+        )
+        .await;
     }
 }
 
@@ -498,7 +465,6 @@ async fn trigger_playback<
 >(
     selected_recording_slot: &mut u8,
     n_slots_initialized: u8,
-    record_switch_ever_used: bool,
     dxl_comm: &mut Comm<'_, '_, HardwareUart>,
     flash: &mut Flash<'_, FlashInstance, flash::Async, FLASH_SIZE>,
     recording_slot_offsets: &[u32; N_RECORDING_SLOTS],
@@ -510,28 +476,20 @@ async fn trigger_playback<
     }
 
     let mut offset = recording_slot_offsets[usize::from(*selected_recording_slot)];
-    if !record_switch_ever_used {
-        'select_another_slot: loop {
-            let index_among_initialized_only = rng.blocking_next_u32() as u8 % n_slots_initialized;
-            let opt = offset_of_nth_initialized_slot(
-                flash,
-                recording_slot_offsets,
-                index_among_initialized_only,
-            )
-            .await;
-            let (slot_index, slot_offset) = defmt::unwrap!(opt);
-            *selected_recording_slot = slot_index;
-            offset = slot_offset;
-            if slot_is_initialized(flash, offset).await {
-                break 'select_another_slot;
-            }
+    'select_another_slot: loop {
+        let index_among_initialized_only = rng.blocking_next_u32() as u8 % n_slots_initialized;
+        let opt = offset_of_nth_initialized_slot(
+            flash,
+            recording_slot_offsets,
+            index_among_initialized_only,
+        )
+        .await;
+        let (slot_index, slot_offset) = defmt::unwrap!(opt);
+        *selected_recording_slot = slot_index;
+        offset = slot_offset;
+        if slot_is_initialized(flash, offset).await {
+            break 'select_another_slot;
         }
-    } else if !slot_is_initialized(flash, offset).await {
-        defmt::error!(
-            "This slot (#{}) is empty, so it can't be played back; skipping.",
-            *selected_recording_slot
-        );
-        return;
     }
 
     defmt::info!(
@@ -615,7 +573,6 @@ async fn trigger_playback<
         }
 
         static mut IDS_ALREADY_SEEN: [bool; 256] = [false; 256];
-        static mut INSNS_ALREADY_SEEN: [bool; 256] = [false; 256];
 
         enum ParseState {
             Init,
@@ -623,9 +580,6 @@ async fn trigger_playback<
             SeenSecondFf,
             SeenFd,
             SeenZero,
-            SeenId,
-            SeenLength1,
-            SeenLength2,
         }
 
         let mut parse_state = ParseState::Init;
@@ -662,17 +616,6 @@ async fn trigger_playback<
                         if !IDS_ALREADY_SEEN[usize::from(byte)] {
                             IDS_ALREADY_SEEN[usize::from(byte)] = true;
                             defmt::info!("Active ID: {}", byte);
-                        }
-                    }
-                    parse_state = ParseState::SeenId
-                }
-                ParseState::SeenId => parse_state = ParseState::SeenLength1,
-                ParseState::SeenLength1 => parse_state = ParseState::SeenLength2,
-                ParseState::SeenLength2 => {
-                    unsafe {
-                        if !INSNS_ALREADY_SEEN[usize::from(byte)] {
-                            INSNS_ALREADY_SEEN[usize::from(byte)] = true;
-                            defmt::info!("Active instruction: {}/x{0:x}", byte);
                         }
                     }
                     parse_state = ParseState::Init

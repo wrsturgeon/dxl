@@ -1,15 +1,15 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 linker = "flip-link"
-# runner = "sudo picotool load -u -v -x -t elf"
-runner = [
-  "sudo",
-  "probe-rs",
-  "run",
-  "--chip",
-  "RP235x",
-  "--log-format",
-  "[{L} at {t}s] {s:severity:bold}   {from {F}:{l}%dimmed%italic}",
-]
+runner = "sudo picotool load -u -v -x -t elf"
+# runner = [
+#   "sudo",
+#   "probe-rs",
+#   "run",
+#   "--chip",
+#   "RP235x",
+#   "--log-format",
+#   "[{L} at {t}s] {s:severity:bold}   {from {F}:{l}%dimmed%italic}",
+# ]
 rustflags = ["-Cforce-frame-pointers", "-Cforce-unwind-tables"]
 
 [build]
