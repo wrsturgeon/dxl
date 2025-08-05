@@ -3,13 +3,16 @@
     reason = "extra binary space, inconsistent across instructions"
 )]
 
-use crate::{Instruction, constants::C16, control_table, recv};
+use core::{marker::PhantomData, mem::MaybeUninit};
+
+use crate::{Instruction, control_table, recv};
 
 #[repr(C, packed)]
 #[derive(defmt::Format)]
 pub struct Ping;
 impl Ping {
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self
     }
@@ -24,28 +27,28 @@ impl Instruction for Ping {
 #[derive(defmt::Format)]
 pub struct Read<Address: control_table::Item>
 where
-    [(); { Address::ADDRESS as u16 } as usize]:,
     [(); Address::BYTES as usize]:,
 {
-    address: C16<{ Address::ADDRESS as u16 }>,
-    length: C16<{ Address::BYTES }>,
+    address: [u8; 2],
+    length: [u8; 2],
+    _phantom: PhantomData<Address>,
 }
 impl<Address: control_table::Item> Read<Address>
 where
-    [(); { Address::ADDRESS as u16 } as usize]:,
     [(); Address::BYTES as usize]:,
 {
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
-            address: C16::new(),
-            length: C16::new(),
+            address: (Address::ADDRESS as u16).to_le_bytes(),
+            length: Address::BYTES.to_le_bytes(),
+            _phantom: PhantomData,
         }
     }
 }
 impl<Address: control_table::Item> Instruction for Read<Address>
 where
-    [(); { Address::ADDRESS as u16 } as usize]:,
     [(); Address::BYTES as usize]:,
 {
     const BYTE: u8 = 0x02;
@@ -54,77 +57,71 @@ where
 }
 
 #[repr(C, packed)]
-pub struct Write<Address: control_table::Item>
-where
-    [(); { Address::ADDRESS as u16 } as usize]:,
-    [(); Address::BYTES as usize]:,
-{
-    address: C16<{ Address::ADDRESS as u16 }>,
-    bytes: [u8; Address::BYTES as usize],
+pub struct Write<Address: control_table::Item> {
+    address: [u8; 2],
+    bytes: [MaybeUninit<u8>; 4],
+    _phantom: PhantomData<Address>,
 }
-impl<Address: control_table::Item> Write<Address>
-where
-    [(); { Address::ADDRESS as u16 } as usize]:,
-    [(); Address::BYTES as usize]:,
-{
-    #[inline(always)]
+impl<Address: control_table::Item> Write<Address> {
+    #[inline]
+    #[must_use]
     pub const fn new(bytes: [u8; Address::BYTES as usize]) -> Self {
         Self {
-            address: C16::new(),
-            bytes,
+            address: (Address::ADDRESS as u16).to_le_bytes(),
+            bytes: {
+                let mut uninit = MaybeUninit::<[_; 4]>::uninit();
+                unsafe {
+                    let () = uninit
+                        .as_mut_ptr()
+                        .cast::<[u8; Address::BYTES as usize]>()
+                        .write(bytes);
+                }
+                unsafe { uninit.assume_init() }
+            },
+            _phantom: PhantomData,
         }
     }
 }
-impl<Address: control_table::Item> Instruction for Write<Address>
-where
-    [(); { Address::ADDRESS as u16 } as usize]:,
-    [(); Address::BYTES as usize]:,
-{
+impl<Address: control_table::Item> Instruction for Write<Address> {
     const BYTE: u8 = 0x03;
     const GERUND: &str = "Writing";
     type Recv = ();
 }
-impl<Address: control_table::Item> defmt::Format for Write<Address>
-where
-    [(); { Address::ADDRESS as u16 } as usize]:,
-    [(); Address::BYTES as usize]:,
-{
+impl<Address: control_table::Item> defmt::Format for Write<Address> {
     #[inline]
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(f, "Write {{ address: {}, bytes: [ ", Address::DESCRIPTION);
         let byte: *const u8 = (&raw const self.bytes).cast();
         for i in 0..Address::BYTES {
-            defmt::write!(f, "x{=u8:X}, ", unsafe { byte.offset(i as _).read() });
+            defmt::write!(f, "x{=u8:X}, ", unsafe { byte.add(usize::from(i)).read() });
         }
-        defmt::write!(f, "] }}")
+        let () = defmt::write!(f, "] }}");
     }
 }
 
 #[repr(C, packed)]
 pub struct RegWrite<Address: control_table::Item>
 where
-    [(); { Address::ADDRESS as u16 } as usize]:,
     [(); Address::BYTES as usize]:,
 {
-    address: C16<{ Address::ADDRESS as u16 }>,
+    address: [u8; 2],
     bytes: [u8; Address::BYTES as usize],
 }
 impl<Address: control_table::Item> RegWrite<Address>
 where
-    [(); { Address::ADDRESS as u16 } as usize]:,
     [(); Address::BYTES as usize]:,
 {
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn new(bytes: [u8; Address::BYTES as usize]) -> Self {
         Self {
-            address: C16::new(),
+            address: (Address::ADDRESS as u16).to_le_bytes(),
             bytes,
         }
     }
 }
 impl<Address: control_table::Item> Instruction for RegWrite<Address>
 where
-    [(); { Address::ADDRESS as u16 } as usize]:,
     [(); Address::BYTES as usize]:,
 {
     const BYTE: u8 = 0x04;
@@ -133,7 +130,6 @@ where
 }
 impl<Address: control_table::Item> defmt::Format for RegWrite<Address>
 where
-    [(); { Address::ADDRESS as u16 } as usize]:,
     [(); Address::BYTES as usize]:,
 {
     #[inline]
@@ -145,9 +141,9 @@ where
         );
         let byte: *const u8 = (&raw const self.bytes).cast();
         for i in 0..Address::BYTES {
-            defmt::write!(f, "x{=u8:X}, ", unsafe { byte.offset(i as _).read() });
+            defmt::write!(f, "x{=u8:X}, ", unsafe { byte.add(usize::from(i)).read() });
         }
-        defmt::write!(f, "] }}")
+        let () = defmt::write!(f, "] }}");
     }
 }
 
@@ -155,7 +151,8 @@ where
 #[derive(defmt::Format)]
 pub struct Action;
 impl Action {
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self
     }
@@ -170,7 +167,8 @@ impl Instruction for Action {
 #[derive(defmt::Format)]
 pub struct FactoryReset;
 impl FactoryReset {
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self
     }
@@ -185,7 +183,8 @@ impl Instruction for FactoryReset {
 #[derive(defmt::Format)]
 pub struct Reboot;
 impl Reboot {
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub const fn new() -> Self {
         Self
     }

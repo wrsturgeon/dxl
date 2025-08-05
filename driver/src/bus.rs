@@ -27,9 +27,9 @@ pub enum IdError {
 }
 
 pub struct Bus<C: Comm> {
-    comm: C,
+    pub comm: C,
     #[cfg(debug_assertions)]
-    used_ids: [bool; dxl_packet::N_IDS as usize],
+    pub used_ids: [bool; dxl_packet::N_IDS as usize],
 }
 
 macro_rules! instruction_method {
@@ -131,11 +131,7 @@ impl<C: Comm> Bus<C> {
         &mut self,
         id: u8,
         parameters: Insn,
-    ) -> Result<Insn::Recv, Error<C, Insn::Recv>>
-    where
-        [(); { Insn::BYTE } as usize]:,
-        [(); { core::mem::size_of::<Insn>() as u16 + 3 } as usize]:,
-    {
+    ) -> Result<Insn::Recv, Error<C, Insn::Recv>> {
         let mut stream = {
             let packet = ::dxl_packet::packet::new::<Insn>(id, parameters);
             defmt::debug!("Packet: {}", packet.as_buffer());
@@ -255,9 +251,7 @@ impl<'bus, C: Comm, M: Mutex<Item = Bus<C>>> Scan<'bus, C, M> {
         loop {
             if self.id == dxl_packet::MAX_ID {
                 self.baud_index = self.baud_index.wrapping_add(1);
-                let Some(&baud) = SCAN_BAUD.get(self.baud_index) else {
-                    return None;
-                };
+                let baud = *SCAN_BAUD.get(self.baud_index)?;
                 defmt::info!("");
                 defmt::info!("Scanning at {} baud:", baud);
                 let mut bus = self.bus.lock_persistent().await;

@@ -4,11 +4,7 @@ pub mod send;
 use {core::fmt, enum_repr::EnumRepr};
 
 #[inline]
-pub const fn new<Insn: crate::Instruction>(id: u8, instruction: Insn) -> send::WithCrc<Insn>
-where
-    [(); { core::mem::size_of::<Insn>() as u16 + 3 } as usize]:,
-    [(); { Insn::BYTE } as usize]:,
-{
+pub const fn new<Insn: crate::Instruction>(id: u8, instruction: Insn) -> send::WithCrc<Insn> {
     let without_crc = send::WithoutCrc::new(id, instruction);
     let crc = {
         let mut crc_state = const { send::WithoutCrc::<Insn>::crc_init() };

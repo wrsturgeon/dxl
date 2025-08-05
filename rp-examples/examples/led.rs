@@ -3,24 +3,17 @@
 #![feature(impl_trait_in_assoc_type)]
 
 use {
-    cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
     defmt_rtt as _,
     dxl_driver::bus::Bus,
     dxl_rp::{Actuator, Comm, Mutex},
     embassy_executor::Spawner,
-    embassy_futures::join::join,
-    embassy_net::udp::{self, UdpSocket},
     embassy_rp::{
         bind_interrupts,
-        gpio::{Level, Output},
-        peripherals::{DMA_CH0, PIO0, UART1, USB},
-        pio::{self, Pio},
+        peripherals::{UART1, USB},
         uart, usb,
     },
-    embassy_time::{Duration, Instant, Timer},
+    embassy_time::{Duration, Timer},
     panic_probe as _,
-    paste::paste,
-    static_cell::StaticCell,
 };
 
 bind_interrupts!(struct Irqs {
@@ -76,8 +69,4 @@ async fn main(spawner: Spawner) {
             Err(e) => defmt::panic!("Error spawning USB task: {}", e),
         };
     }
-
-    let dxl_bus = dxl_rp::bus(
-        BAUD, p.PIN_7, p.UART1, p.PIN_8, p.PIN_9, Irqs, p.DMA_CH1, p.DMA_CH2,
-    );
 }

@@ -269,6 +269,7 @@ impl<Insn: Instruction> parse::State<u8> for WithoutCrc<Insn> {
     >;
 
     #[inline]
+    #[expect(clippy::too_many_lines, reason = "Lots of cases in a single match.")]
     fn push(
         self,
         input: u8,
@@ -296,15 +297,14 @@ impl<Insn: Instruction> parse::State<u8> for WithoutCrc<Insn> {
                 Self::Header3 => expect!(0xFD, WrongThirdHeaderByte, Reserved),
                 Self::Reserved => expect!(0x00, WrongReservedByte, Id),
                 Self::Id => {
-                    if input >= crate::MIN_ID && input <= crate::MAX_ID {
-                        let mut crc_state = const { WithoutCrc::<Insn>::crc_init() };
-                        let () = crc_state.push(input);
-                        Self::LengthLo {
-                            id: input,
-                            crc_state,
-                        }
-                    } else {
+                    if !(crate::MIN_ID..=crate::MAX_ID).contains(&input) {
                         return Err(ParseError::InvalidId { id: input });
+                    }
+                    let mut crc_state = const { WithoutCrc::<Insn>::crc_init() };
+                    let () = crc_state.push(input);
+                    Self::LengthLo {
+                        id: input,
+                        crc_state,
                     }
                 }
                 Self::LengthLo { id, mut crc_state } => {

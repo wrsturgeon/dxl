@@ -5,27 +5,31 @@ edition = "2024"
 resolver = "2"
 
 [build-dependencies]
-reqwest = { version = "*", features = ["blocking"] }
+reqwest = { version = "0.12.20", features = ["blocking"] }
 
 [dependencies]
-bt-hci = { version = "*", features = ["defmt"] }
-cortex-m-rt = { version = "*" }
-cyw43 = { version = "*", features = ["bluetooth", "defmt", "firmware-logs"] }
-cyw43-pio = { version = "*", features = ["defmt"] }
-defmt = { version = "*" }
-defmt-rtt = { version = "*" }
+bt-hci = { version = "0.3.2", features = ["defmt"] }
+cortex-m-rt = { version = "0.7.5" }
+cyw43 = { version = "0.3.0", features = [
+  "bluetooth",
+  "defmt",
+  "firmware-logs",
+] }
+cyw43-pio = { version = "0.4.0", features = ["defmt"] }
+defmt = { version = "1.0.1" }
+defmt-rtt = { version = "1.0.0" }
 dxl-driver = { path = "../driver" }
 dxl-packet = { path = "../packet" }
 dxl-rp = { path = "../rp" }
-embassy-executor = { version = "*", features = [
+embassy-executor = { version = "0.7.0", features = [
   "arch-cortex-m",
   "defmt",
   "executor-interrupt",
   "executor-thread",
   "nightly",
 ] }
-embassy-futures = { version = "*" }
-embassy-net = { version = "*", features = [
+embassy-futures = { version = "0.1.1" }
+embassy-net = { version = "0.7.0", features = [
   "defmt",
   "dhcpv4",
   "dns",
@@ -38,7 +42,7 @@ embassy-net = { version = "*", features = [
   "tcp",
   "udp",
 ] }
-embassy-rp = { version = "*", features = [
+embassy-rp = { version = "0.4.0", features = [
   "binary-info",
   "critical-section-impl",
   "defmt",
@@ -46,21 +50,22 @@ embassy-rp = { version = "*", features = [
   "time-driver",
   "unstable-pac",
 ] }
-embassy-sync = { version = "*" }
-embassy-time = { version = "*", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-usb = "*"
-embassy-usb-driver = "*"
-embassy-usb-logger = "*"
-embedded-io-async = { version = "*", features = ["defmt-03"] }
-heapless = { version = "*" }
-libm = "*"
-log = "*"
-panic-probe = { version = "*", features = ["print-defmt"] }
-rand_core = { version = "0.6.4" }
-static_cell = { version = "*" }
-trouble-host = { git = "https://github.com/embassy-rs/trouble.git", features = [
+embassy-sync = { version = "0.7.0" }
+embassy-time = { version = "0.4.0", features = [
   "defmt",
+  "defmt-timestamp-uptime",
 ] }
+embassy-usb = "0.4.0"
+embassy-usb-driver = "0.1.0"
+embassy-usb-logger = "0.4.0"
+embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
+heapless = { version = "0.8.0" }
+libm = "0.2.15"
+log = "0.4.27"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+rand_core = { version = "0.6.4" }
+static_cell = { version = "2.1.0" }
+trouble-host = { version = "0.2.0", features = ["defmt"] }
 
 [dev-dependencies]
-paste = "*"
+paste = "1.0.15"

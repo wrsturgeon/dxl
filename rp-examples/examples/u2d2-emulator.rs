@@ -8,20 +8,16 @@ use {
     dxl_packet::stream::Stream as _,
     dxl_rp::{Comm, serial::RecvError},
     embassy_executor::Spawner,
-    embassy_futures::join::{join, join3},
     embassy_rp::{
-        bind_interrupts, gpio,
+        bind_interrupts,
         peripherals::{UART1, USB},
         uart,
-        usb::{Driver, Instance, InterruptHandler},
+        usb::{Driver, InterruptHandler},
     },
-    embassy_sync::{blocking_mutex::raw::NoopRawMutex, pipe::Pipe},
     embassy_usb::{
         Builder, Config, UsbDevice,
-        class::cdc_acm::{CdcAcmClass, Receiver, Sender, State},
-        driver::EndpointError,
+        class::cdc_acm::{CdcAcmClass, State},
     },
-    embedded_io_async::{Read, Write},
     panic_probe as _,
     static_cell::StaticCell,
 };
@@ -74,7 +70,7 @@ async fn main(spawner: Spawner) {
     let usb_cdc_acm_class = CdcAcmClass::new(&mut builder, state, 64);
 
     // Build the builder.
-    let mut usb_runner = builder.build();
+    let usb_runner = builder.build();
 
     {
         // USB background task:

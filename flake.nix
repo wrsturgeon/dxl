@@ -53,7 +53,9 @@
       {
         devShells.default = pkgs.mkShell {
           packages =
-            [ rust ]
+            [
+              rust
+            ]
             ++ (with pkgs; [
               cargo-expand
               flip-link
