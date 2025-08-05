@@ -57,37 +57,28 @@ where
 }
 
 #[repr(C, packed)]
-pub struct Write<Address: control_table::Item> {
+pub struct Write<Address: control_table::Item, const BYTES: usize> {
     address: [u8; 2],
-    bytes: [MaybeUninit<u8>; 4],
+    bytes: [u8; BYTES],
     _phantom: PhantomData<Address>,
 }
-impl<Address: control_table::Item> Write<Address> {
+impl<Address: control_table::Item, const BYTES: usize> Write<Address, BYTES> {
     #[inline]
     #[must_use]
-    pub const fn new(bytes: [u8; Address::BYTES as usize]) -> Self {
+    pub const fn new(bytes: [u8; BYTES]) -> Self {
         Self {
             address: (Address::ADDRESS as u16).to_le_bytes(),
-            bytes: {
-                let mut uninit = MaybeUninit::<[_; 4]>::uninit();
-                unsafe {
-                    let () = uninit
-                        .as_mut_ptr()
-                        .cast::<[u8; Address::BYTES as usize]>()
-                        .write(bytes);
-                }
-                unsafe { uninit.assume_init() }
-            },
+            bytes,
             _phantom: PhantomData,
         }
     }
 }
-impl<Address: control_table::Item> Instruction for Write<Address> {
+impl<Address: control_table::Item, const BYTES: usize> Instruction for Write<Address, BYTES> {
     const BYTE: u8 = 0x03;
     const GERUND: &str = "Writing";
     type Recv = ();
 }
-impl<Address: control_table::Item> defmt::Format for Write<Address> {
+impl<Address: control_table::Item, const BYTES: usize> defmt::Format for Write<Address, BYTES> {
     #[inline]
     fn format(&self, f: defmt::Formatter) {
         defmt::write!(f, "Write {{ address: {}, bytes: [ ", Address::DESCRIPTION);

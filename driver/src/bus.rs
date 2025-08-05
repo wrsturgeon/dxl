@@ -75,9 +75,9 @@ macro_rules! control_table_methods {
                 id: u8,
                 bytes: [u8; <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize]
             ) -> Result<::dxl_packet::recv::Write, Error<C, ::dxl_packet::recv::Write>> {
-                self.comm::<::dxl_packet::send::Write<::dxl_packet::control_table::$id>>(
+                self.comm::<::dxl_packet::send::Write<::dxl_packet::control_table::$id, { <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize }>>(
                     id,
-                    ::dxl_packet::send::Write::<::dxl_packet::control_table::$id>::new(bytes)
+                    ::dxl_packet::send::Write::<::dxl_packet::control_table::$id, { <::dxl_packet::control_table::$id as ::dxl_packet::control_table::Item>::BYTES as usize }>::new(bytes)
                 )
                 .await
             }

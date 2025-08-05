@@ -8,6 +8,7 @@ use {
     cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
     defmt_rtt as _,
     dxl_driver::{bus::Bus, comm::Comm as _},
+    dxl_packet::control_table::Item as _,
     embassy_executor::Spawner,
     embassy_net::udp::{self, UdpSocket},
     embassy_rp::{
@@ -282,9 +283,15 @@ async fn main(spawner: Spawner) {
         let bytes = pos.to_le_bytes();
         // let result = dxl_bus.write_goal_position(id, bytes).await;
         let result = dxl_bus
-            .comm::<::dxl_packet::send::Write<::dxl_packet::control_table::GoalPosition>>(
+            .comm::<::dxl_packet::send::Write<
+                ::dxl_packet::control_table::GoalPosition,
+                { ::dxl_packet::control_table::GoalPosition::BYTES as usize },
+            >>(
                 id,
-                ::dxl_packet::send::Write::<::dxl_packet::control_table::GoalPosition>::new(bytes),
+                ::dxl_packet::send::Write::<
+                    ::dxl_packet::control_table::GoalPosition,
+                    { ::dxl_packet::control_table::GoalPosition::BYTES as usize },
+                >::new(bytes),
             )
             .await;
         match result {
