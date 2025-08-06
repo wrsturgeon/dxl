@@ -56,7 +56,10 @@ impl<'lock, 'uart, HardwareUart: uart::Instance> crate::Stream
                 .await
                 .map_err(RecvError::TimedOut)?
             {
-                Ok(()) => return Ok(byte),
+                Ok(()) => {
+                    defmt::debug!("`Stream` read the following byte via UART: x{:X}", byte);
+                    return Ok(byte);
+                }
                 Err(uart::Error::Break) => defmt::warn!("UART break"),
                 Err(e) => return Err(RecvError::Uart(e)),
             }

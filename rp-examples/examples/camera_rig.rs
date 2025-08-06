@@ -7,13 +7,13 @@
 use {
     cyw43_pio::{PioSpi, RM2_CLOCK_DIVIDER},
     defmt_rtt as _,
-    dxl_driver::{bus::Bus, comm::Comm as _},
+    dxl_driver::bus::Bus,
     dxl_packet::control_table::Item as _,
     embassy_executor::Spawner,
     embassy_net::udp::{self, UdpSocket},
     embassy_rp::{
         bind_interrupts, gpio,
-        peripherals::{DMA_CH0, PIO0, UART0},
+        peripherals::{DMA_CH0, PIO0, UART1},
         pio::{self, Pio},
         uart,
     },
@@ -23,7 +23,7 @@ use {
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
-    UART0_IRQ => uart::InterruptHandler<UART0>;
+    UART1_IRQ => uart::InterruptHandler<UART1>;
 });
 
 const BAUD: u32 = 2_000_000;
@@ -127,7 +127,7 @@ async fn main(spawner: Spawner) {
         stack
     };
 
-    control.start_ap_wpa2("picomixel", "spectral", 5).await;
+    control.start_ap_wpa2(WIFI_SSID, WIFI_PASS, 5).await;
 
     'wait_for_dhcp: loop {
         if let Some(config) = net_stack.config_v4() {
@@ -157,9 +157,9 @@ async fn main(spawner: Spawner) {
     }
 
     let tx_enable_pin = p.PIN_7;
-    let uart = p.UART0;
-    let tx = p.PIN_16;
-    let rx = p.PIN_17;
+    let uart = p.UART1;
+    let tx = p.PIN_8;
+    let rx = p.PIN_9;
     let irq = Irqs;
     let tx_dma = p.DMA_CH1;
     let rx_dma = p.DMA_CH2;
@@ -239,21 +239,240 @@ async fn main(spawner: Spawner) {
                 }
             }
         }
-        let mut pos: i32 = match bytes.next() {
-            Some(c @ b'0'..=b'9') => i32::from(c - b'0'),
-            None => {
-                defmt::error!(
-                    "Unexpected end of packet instead of a position or command; discarding...",
-                );
-                continue 'main_loop;
+        let (neg, mut pos) = {
+            let mut neg = false;
+            let acc: i32;
+            'pos: loop {
+                match bytes.next() {
+                    Some(b't' | b'T') => {
+                        if !matches!(bytes.next(), Some(b'/')) {
+                            defmt::error!(
+                                "Unexpected end of packet instead of a slash before the torque-enable setting to write; discarding...",
+                            );
+                            continue 'main_loop;
+                        }
+                        let setting = match bytes.next() {
+                            Some(b'0' | b'f' | b'F') => false,
+                            Some(b'1' | b't' | b'T') => true,
+                            None => {
+                                defmt::error!(
+                                    "Unexpected end of packet instead of a torque-enable setting to write; discarding...",
+                                );
+                                continue 'main_loop;
+                            }
+                            Some(other) => {
+                                defmt::error!(
+                                    "Unexpected character ({}) instead of a position or command; discarding...",
+                                    other,
+                                );
+                                continue 'main_loop;
+                            }
+                        };
+                        let result = dxl_bus
+                            .comm::<::dxl_packet::send::Write<
+                                ::dxl_packet::control_table::TorqueEnable,
+                                { ::dxl_packet::control_table::TorqueEnable::BYTES as usize },
+                            >>(
+                                id,
+                                ::dxl_packet::send::Write::<
+                                    ::dxl_packet::control_table::TorqueEnable,
+                                    { ::dxl_packet::control_table::TorqueEnable::BYTES as usize },
+                                >::new([setting as u8]),
+                            )
+                            .await;
+                        match result {
+                            Ok(()) => {}
+                            Err(e) => defmt::error!("Error enabling torque: {}; discarding...", e),
+                        }
+                        continue 'main_loop;
+                    }
+                    Some(b'a' | b'A') => {
+                        if !matches!(bytes.next(), Some(b'/')) {
+                            defmt::error!(
+                                "Unexpected end of packet instead of a slash before the acceleration profile setting to write; discarding...",
+                            );
+                            continue 'main_loop;
+                        }
+                        let mut neg = false;
+                        let mut setting: i32;
+                        'setup: loop {
+                            match bytes.next() {
+                                Some(b'-') => neg = true,
+                                Some(c @ b'0'..=b'9') => {
+                                    setting = (c - b'0').into();
+                                    break 'setup;
+                                }
+                                None => {
+                                    defmt::error!(
+                                        "Unexpected end of packet instead of an acceleration profile setting to write; discarding...",
+                                    );
+                                    continue 'main_loop;
+                                }
+                                Some(other) => {
+                                    defmt::error!(
+                                        "Unexpected character ({}) instead of an acceleration profile setting to write; discarding...",
+                                        other,
+                                    );
+                                    continue 'main_loop;
+                                }
+                            }
+                        }
+                        'int: loop {
+                            match bytes.next() {
+                                Some(c @ b'0'..=b'9') => {
+                                    setting = {
+                                        let Some(some) = setting
+                                            .checked_mul(10)
+                                            .and_then(|i| i.checked_add((c - b'0').into()))
+                                        else {
+                                            defmt::error!(
+                                                "Acceleration profile too large; discarding...",
+                                            );
+                                            continue 'main_loop;
+                                        };
+                                        some
+                                    };
+                                }
+                                None => break 'int,
+                                Some(other) => {
+                                    defmt::error!(
+                                        "Unexpected character ({}) instead of an acceleration profile setting to write; discarding...",
+                                        other,
+                                    );
+                                    continue 'main_loop;
+                                }
+                            };
+                        }
+                        if neg {
+                            setting = -setting;
+                        }
+                        let result = dxl_bus
+                            .comm::<::dxl_packet::send::Write<
+                                ::dxl_packet::control_table::ProfileAcceleration,
+                                {
+                                    ::dxl_packet::control_table::ProfileAcceleration::BYTES as usize
+                                },
+                            >>(
+                                id,
+                                ::dxl_packet::send::Write::<
+                                    ::dxl_packet::control_table::ProfileAcceleration,
+                                    {
+                                        ::dxl_packet::control_table::ProfileAcceleration::BYTES
+                                            as usize
+                                    },
+                                >::new(setting.to_le_bytes()),
+                            )
+                            .await;
+                        match result {
+                            Ok(()) => {}
+                            Err(e) => defmt::error!("Error enabling torque: {}; discarding...", e),
+                        }
+                        continue 'main_loop;
+                    }
+                    Some(b'v' | b'V') => {
+                        if !matches!(bytes.next(), Some(b'/')) {
+                            defmt::error!(
+                                "Unexpected end of packet instead of a slash before the velocity profile setting to write; discarding...",
+                            );
+                            continue 'main_loop;
+                        }
+                        let mut neg = false;
+                        let mut setting: i32;
+                        'setup: loop {
+                            match bytes.next() {
+                                Some(b'-') => neg = true,
+                                Some(c @ b'0'..=b'9') => {
+                                    setting = (c - b'0').into();
+                                    break 'setup;
+                                }
+                                None => {
+                                    defmt::error!(
+                                        "Unexpected end of packet instead of a velocity profile setting to write; discarding...",
+                                    );
+                                    continue 'main_loop;
+                                }
+                                Some(other) => {
+                                    defmt::error!(
+                                        "Unexpected character ({}) instead of a velocity profile setting to write; discarding...",
+                                        other,
+                                    );
+                                    continue 'main_loop;
+                                }
+                            }
+                        }
+                        'int: loop {
+                            match bytes.next() {
+                                Some(c @ b'0'..=b'9') => {
+                                    setting = {
+                                        let Some(some) = setting
+                                            .checked_mul(10)
+                                            .and_then(|i| i.checked_add((c - b'0').into()))
+                                        else {
+                                            defmt::error!(
+                                                "Velocity profile too large; discarding...",
+                                            );
+                                            continue 'main_loop;
+                                        };
+                                        some
+                                    };
+                                }
+                                None => break 'int,
+                                Some(other) => {
+                                    defmt::error!(
+                                        "Unexpected character ({}) instead of a velocity profile setting to write; discarding...",
+                                        other,
+                                    );
+                                    continue 'main_loop;
+                                }
+                            };
+                        }
+                        if neg {
+                            setting = -setting;
+                        }
+                        let result = dxl_bus
+                            .comm::<::dxl_packet::send::Write<
+                                ::dxl_packet::control_table::ProfileVelocity,
+                                { ::dxl_packet::control_table::ProfileVelocity::BYTES as usize },
+                            >>(
+                                id,
+                                ::dxl_packet::send::Write::<
+                                    ::dxl_packet::control_table::ProfileVelocity,
+                                    {
+                                        ::dxl_packet::control_table::ProfileVelocity::BYTES as usize
+                                    },
+                                >::new(setting.to_le_bytes()),
+                            )
+                            .await;
+                        match result {
+                            Ok(()) => {}
+                            Err(e) => defmt::error!("Error enabling torque: {}; discarding...", e),
+                        }
+                        continue 'main_loop;
+                    }
+                    Some(b'-') => {
+                        neg = true;
+                        continue 'pos;
+                    }
+                    Some(c @ b'0'..=b'9') => {
+                        acc = i32::from(c - b'0');
+                        break 'pos;
+                    }
+                    None => {
+                        defmt::error!(
+                            "Unexpected end of packet instead of a position or command; discarding...",
+                        );
+                        continue 'main_loop;
+                    }
+                    Some(other) => {
+                        defmt::error!(
+                            "Unexpected character ({}) instead of a position or command; discarding...",
+                            other,
+                        );
+                        continue 'main_loop;
+                    }
+                }
             }
-            Some(other) => {
-                defmt::error!(
-                    "Unexpected character ({}) instead of a position or command; discarding...",
-                    other,
-                );
-                continue 'main_loop;
-            }
+            (neg, acc)
         };
         'pos: loop {
             match bytes.next() {
@@ -278,6 +497,9 @@ async fn main(spawner: Spawner) {
                     continue 'main_loop;
                 }
             }
+        }
+        if neg {
+            pos = -pos;
         }
 
         let bytes = pos.to_le_bytes();

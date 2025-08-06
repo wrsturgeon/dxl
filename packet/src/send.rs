@@ -3,7 +3,7 @@
     reason = "extra binary space, inconsistent across instructions"
 )]
 
-use core::{marker::PhantomData, mem::MaybeUninit};
+use core::marker::PhantomData;
 
 use crate::{Instruction, control_table, recv};
 

@@ -23,7 +23,7 @@ use {
     pull_high::PullHigh,
 };
 
-const TIMEOUT_RECV: Duration = Duration::from_millis(2);
+const TIMEOUT_RECV: Duration = Duration::from_millis(10);
 
 #[inline]
 #[expect(
